@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.next/
+backend/server
+backend/server.exe
+
+# Env
+.env
+.env.local
+*.local
+
+# Generated secret (from .env) - do not commit with real keys
+k8s/secret-api-keys.generated.yaml
+# Kustomize secretGenerator reads this; do not commit with real keys
+k8s/.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+# Windows reserved names (avoid "git add ." errors)
+nul
+con
+prn
+aux
+
+# Build
+dist/
+build/

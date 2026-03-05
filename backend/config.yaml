@@ -1,0 +1,19 @@
+server:
+  port: 8080
+postgres:
+  url: "postgres://atoms:atoms@localhost:5432/atoms?sslmode=disable"
+mongodb:
+  uri: "mongodb://localhost:27017"
+  database: atoms
+redis:
+  addr: "localhost:6379"
+  rate_limit: 120
+  rate_window_sec: 60
+kafka:
+  brokers:
+    - "localhost:9092"
+  topic_requirement: "requirement-stage"
+  topic_design: "design-stage"
+  topic_implementation: "implementation-stage"
+  topic_feedback: "feedback-stage"
+  consumer_group: "atoms-agents"

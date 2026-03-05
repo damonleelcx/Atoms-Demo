@@ -1,0 +1,94 @@
+# Frontend image must be built with NEXT_PUBLIC_API_URL at build time. See README "Building Docker images" (bash + Command Prompt).
+# For same-origin (ingress /api -> backend), use empty: --build-arg NEXT_PUBLIC_API_URL=
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: atoms-demo
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: atoms-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+          envFrom:
+            - secretRef:
+                name: atoms-demo-secrets
+                optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: atoms-demo
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP
+---
+# Ingress for frontend (/) and backend (/api).
+# - Local: use your-domain.com → add "127.0.0.1 your-domain.com" to hosts, then port-forward ingress (e.g. kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 80:80) or minikube tunnel.
+# - Minikube (no hosts): use the rule with no host below → open http://$(minikube ip).
+# - Production: change your-domain.com to your real domain and add spec.tls for HTTPS.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-ingress
+  namespace: atoms-demo
+spec:
+  ingressClassName: nginx
+  rules:
+    # Local or production: host your-domain.com (local: add 127.0.0.1 your-domain.com to hosts + port-forward ingress; production: point DNS here + add TLS)
+    - host: your-domain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8080
+    # Minikube / local: no host → access via http://$(minikube ip) or http://localhost if you port-forward
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8080

@@ -1,0 +1,26 @@
+# Kustomize:  make k8s-env  then  make k8s-apply  (or  kubectl apply -k k8s )
+# secretGenerator loads k8s/.env into Secret atoms-demo-secrets for backend + frontend.
+# Ensure k8s/.env exists:  make k8s-env  (copies from .env or .env.example).
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: atoms-demo
+
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - mongodb.yaml
+  - redis.yaml
+  - zookeeper.yaml
+  - kafka.yaml
+  - backend.yaml
+  - frontend.yaml
+
+# Generate Secret from k8s/.env for both backend and frontend
+secretGenerator:
+  - name: atoms-demo-secrets
+    envs:
+      - .env
+    options:
+      disableNameSuffixHash: true
