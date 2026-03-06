@@ -181,11 +181,16 @@ export const questionsApi = {
   getRunIds: (questionId: string) =>
     api<{ run_ids: string[] }>(`/api/questions/${questionId}/runs`),
   submitFeedback: (questionId: string, feedback: string, runId?: string, sessionId?: string) =>
-    api<{ status: string }>(`/api/questions/${questionId}/feedback`, {
+    api<{ status: string; run_id: string }>(`/api/questions/${questionId}/feedback`, {
       method: 'POST',
       body: JSON.stringify({ feedback, run_id: runId, session_id: sessionId }),
     }),
-  submitFeedbackAudio: (questionId: string, blob: Blob, runId?: string, sessionId?: string) => {
+  submitFeedbackAudio: (
+    questionId: string,
+    blob: Blob,
+    runId?: string,
+    sessionId?: string
+  ): Promise<{ status: string; feedback: string; run_id: string }> => {
     const headers: Record<string, string> = {};
     if (runId) headers['X-Run-ID'] = runId;
     if (sessionId) headers['X-Session-ID'] = sessionId;

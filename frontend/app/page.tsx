@@ -72,7 +72,11 @@ export default function Home() {
         if (options?.runsOnly && streamRunIdRef.current && !idList.includes(streamRunIdRef.current)) {
           setRunIds([streamRunIdRef.current, ...idList]);
         } else {
-          setRunIds(idList);
+          setRunIds((prev) => {
+            const fromApi = new Set(idList);
+            const prepend = prev.filter((id) => !fromApi.has(id));
+            return prepend.length ? [...prepend, ...idList] : idList;
+          });
         }
         const runToFetch = runId ?? (idList.length > 0 ? idList[0] : undefined);
         if (!options?.runsOnly) {
@@ -253,15 +257,20 @@ export default function Home() {
     const runId = currentRunId ?? undefined;
     setLoadingFeedback(true);
     try {
-      await questionsApi.submitFeedback(
+      const data = await questionsApi.submitFeedback(
         selectedQuestion.id,
         text,
         runId,
         sessionId
       );
+      const newRunId = data.run_id;
       setLastSubmittedFeedback(runId ? { text, runId } : null);
       setFeedback('');
-      loadResponses(selectedQuestion.id, currentRunId || undefined);
+      setRunIds((prev) => (newRunId ? [newRunId, ...prev.filter((id) => id !== newRunId)] : prev));
+      setCurrentRunId(newRunId ?? null);
+      setResponses([]);
+      closeStream();
+      if (newRunId) openStream(selectedQuestion.id, newRunId);
     } catch (e) {
       console.error(e);
       alert('Feedback submit failed');
@@ -274,13 +283,23 @@ export default function Home() {
     if (!selectedQuestion) return;
     setLoadingFeedback(true);
     try {
-      await questionsApi.submitFeedbackAudio(
+      const data = await questionsApi.submitFeedbackAudio(
         selectedQuestion.id,
         blob,
         currentRunId || undefined,
         sessionId
       );
-      loadResponses(selectedQuestion.id, currentRunId || undefined);
+      if (data.feedback) setFeedback(data.feedback);
+      const newRunId = data.run_id;
+      if (newRunId) {
+        setRunIds((prev) => [newRunId, ...prev.filter((id) => id !== newRunId)]);
+        setCurrentRunId(newRunId);
+        setResponses([]);
+        closeStream();
+        openStream(selectedQuestion.id, newRunId);
+      } else {
+        loadResponses(selectedQuestion.id, currentRunId || undefined);
+      }
     } catch (e) {
       console.error(e);
       alert('Feedback audio failed');
@@ -292,10 +311,21 @@ export default function Home() {
   const stageNames: Record<number, string> = { 1: 'requirement', 2: 'design', 3: 'implementation', 4: 'feedback' };
   const displayResponses = React.useMemo(() => {
     const forCurrentRun = currentRunId ? responses.filter((r) => r.run_id === currentRunId) : responses;
-    const byStage = new Map(forCurrentRun.map((r) => [r.stage, r]));
-    const list: AgentResponse[] = [...forCurrentRun];
+    // One response per stage (latest by created_at) so we never show duplicate requirement/design/implementation
+    const byStage = new Map<number, AgentResponse>();
+    for (const r of forCurrentRun) {
+      const existing = byStage.get(r.stage);
+      if (!existing || (r.created_at && existing.created_at && r.created_at > existing.created_at)) {
+        byStage.set(r.stage, r);
+      }
+    }
+    const list: AgentResponse[] = [];
     for (let s = 1; s <= 4; s++) {
-      if (byStage.has(s)) continue;
+      const stored = byStage.get(s);
+      if (stored) {
+        list.push(stored);
+        continue;
+      }
       const content = streamingContent[s];
       if (content)
         list.push({

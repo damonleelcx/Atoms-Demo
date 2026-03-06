@@ -324,16 +324,17 @@ func (h *Handlers) SubmitFeedback(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "questionId required"})
 		return
 	}
-	// Optionally load previous responses to pass as history
+	// Load history from the current run to pass into the new run
 	history, _ := h.Responses.ListByQuestionID(c.Request.Context(), questionID, body.RunID)
 	var historyStrs []string
 	for _, r := range history {
 		historyStrs = append(historyStrs, r.StageName+": "+r.Content)
 	}
+	newRunID := uuid.New().String()
 	msg := &kafka.PipelineMessage{
 		QuestionID: questionID,
 		SessionID:  body.SessionID,
-		RunID:      body.RunID,
+		RunID:      newRunID,
 		Stage:      1,
 		Input:      "", // will be filled from question if needed
 		Feedback:   body.Feedback,
@@ -351,6 +352,6 @@ func (h *Handlers) SubmitFeedback(c *gin.Context) {
 	if h.ResponseCache != nil {
 		h.ResponseCache.InvalidateQuestion(c.Request.Context(), questionID)
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "pipeline_restarted"})
+	c.JSON(http.StatusOK, gin.H{"status": "pipeline_restarted", "run_id": newRunID})
 }
 

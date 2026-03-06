@@ -61,6 +61,15 @@ func (r *Repo) ListByQuestionID(ctx context.Context, questionID string, runID st
 	return out, nil
 }
 
+// DeleteByQuestionIDAndRunID removes all responses for the given question and run (e.g. before restarting pipeline after feedback).
+func (r *Repo) DeleteByQuestionIDAndRunID(ctx context.Context, questionID string, runID string) error {
+	if questionID == "" || runID == "" {
+		return nil
+	}
+	_, err := r.coll.DeleteMany(ctx, bson.M{"question_id": questionID, "run_id": runID})
+	return err
+}
+
 func (r *Repo) LatestByQuestionID(ctx context.Context, questionID string) (*AgentResponse, error) {
 	opts := options.FindOne().SetSort(bson.D{{Key: "created_at", Value: -1}})
 	var ar AgentResponse

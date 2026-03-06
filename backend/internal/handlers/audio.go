@@ -109,10 +109,11 @@ func (h *Handlers) SubmitFeedbackAudio(c *gin.Context) {
 	for _, r := range history {
 		historyStrs = append(historyStrs, r.StageName+": "+r.Content)
 	}
+	newRunID := uuid.New().String()
 	msg := &kafka.PipelineMessage{
 		QuestionID: questionID,
 		SessionID:  sessionID,
-		RunID:      runID,
+		RunID:      newRunID,
 		Stage:      1,
 		Feedback:   feedback,
 		History:    historyStrs,
@@ -125,5 +126,8 @@ func (h *Handlers) SubmitFeedbackAudio(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to restart pipeline"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "pipeline_restarted", "feedback": feedback})
+	if h.ResponseCache != nil {
+		h.ResponseCache.InvalidateQuestion(c.Request.Context(), questionID)
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "pipeline_restarted", "feedback": feedback, "run_id": newRunID})
 }
