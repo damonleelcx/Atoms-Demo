@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { questionsApi, type Question, type AgentResponse } from '@/lib/api';
+import { AudioInput } from '@/components/AudioInput';
+import { CodeView } from '@/components/CodeView';
+import { ImplementationPreview } from '@/components/ImplementationPreview';
 import { MarkdownView } from '@/components/MarkdownView';
 import { ReactDesignView } from '@/components/ReactDesignView';
 import { WireframeView } from '@/components/WireframeView';
-import { ReactAppView } from '@/components/ReactAppView';
-import { CodeView } from '@/components/CodeView';
-import { AudioInput } from '@/components/AudioInput';
+import { questionsApi, type AgentResponse, type Question } from '@/lib/api';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 const POLL_MS = 5000;
 
@@ -25,14 +25,17 @@ export default function Home() {
   const [loadingFeedback, setLoadingFeedback] = useState(false);
   const sessionId = useRef<string>(`sess-${Date.now()}`).current;
   const loadQuestionsLastCall = useRef<number>(0);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const streamAbortRef = useRef<(() => void) | null>(null);
   const streamRunIdRef = useRef<string | null>(null);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+  const prevQuestionIdRef = useRef<string | null>(null);
+  const [collapsedStages, setCollapsedStages] = useState<Record<string, boolean>>({});
   const QUESTIONS_LIST_MIN_MS = 2000;
 
   const closeStream = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
+    if (streamAbortRef.current) {
+      streamAbortRef.current();
+      streamAbortRef.current = null;
     }
     streamRunIdRef.current = null;
     setStreamingContent({});
@@ -55,65 +58,124 @@ export default function Home() {
   }, [loadQuestions]);
 
   const loadResponses = useCallback(
-    async (questionId: string, runId?: string) => {
+    async (questionId: string, runId?: string, options?: { runsOnly?: boolean }) => {
+      const loadingFor = questionId;
       try {
-        const { responses: r } = await questionsApi.getResponses(questionId, runId);
-        setResponses(r || []);
-        const { run_ids: ids } = await questionsApi.getRunIds(questionId);
-        setRunIds(ids || []);
-        if (runId) setCurrentRunId(runId);
-        else if ((ids || []).length > 0) setCurrentRunId(ids![0]);
-        else setCurrentRunId(null);
+        let idList: string[] = [];
+        try {
+          const { run_ids: ids } = await questionsApi.getRunIds(questionId);
+          if (ids?.length) idList = ids;
+        } catch {
+          /* continue without run ids */
+        }
+        if (prevQuestionIdRef.current !== loadingFor) return;
+        if (options?.runsOnly && streamRunIdRef.current && !idList.includes(streamRunIdRef.current)) {
+          setRunIds([streamRunIdRef.current, ...idList]);
+        } else {
+          setRunIds(idList);
+        }
+        const runToFetch = runId ?? (idList.length > 0 ? idList[0] : undefined);
+        if (!options?.runsOnly) {
+          if (runToFetch) setCurrentRunId(runToFetch);
+          else setCurrentRunId(null);
+        }
+        if (!options?.runsOnly) {
+          const { responses: r } = await questionsApi.getResponsesList(questionId, runToFetch);
+          if (prevQuestionIdRef.current !== loadingFor) return;
+          setResponses(r || []);
+        }
       } catch (e) {
         console.error(e);
-        setResponses([]);
+        if (prevQuestionIdRef.current === loadingFor && !options?.runsOnly) setResponses([]);
       }
     },
     []
   );
 
   const openStream = useCallback((questionId: string, runId: string) => {
+    if (!runId) {
+      console.warn('[stream] openStream skipped: no run_id');
+      return;
+    }
     closeStream();
-    const url = questionsApi.streamResponsesUrl(questionId, runId);
-    const es = new EventSource(url);
-    eventSourceRef.current = es;
+    console.log('[stream] Opening fetch SSE questionId=%s runId=%s', questionId, runId);
+    const abort = questionsApi.streamResponses(questionId, runId, {
+      onMessage(data) {
+        try {
+          const d = JSON.parse(data) as { stage: number; chunk?: string; done?: boolean };
+          if (d.chunk) {
+            setStreamingContent((prev) => ({ ...prev, [d.stage]: (prev[d.stage] || '') + d.chunk }));
+          }
+          if (d.done) {
+            setStreamingContent((prev) => {
+              const next = { ...prev };
+              delete next[d.stage];
+              return next;
+            });
+            loadResponses(questionId, runId);
+          }
+        } catch (_) {}
+      },
+      onError(err) {
+        console.warn('[stream] fetch SSE error', err);
+        streamAbortRef.current = null;
+        streamRunIdRef.current = null;
+      },
+    });
+    streamAbortRef.current = abort;
     streamRunIdRef.current = runId;
-    es.onmessage = (e) => {
-      try {
-        const d = JSON.parse(e.data) as { stage: number; chunk?: string; done?: boolean };
-        if (d.chunk) {
-          setStreamingContent((prev) => ({ ...prev, [d.stage]: (prev[d.stage] || '') + d.chunk }));
-        }
-        if (d.done) {
-          setStreamingContent((prev) => {
-            const next = { ...prev };
-            delete next[d.stage];
-            return next;
-          });
-          loadResponses(questionId, runId);
-        }
-      } catch (_) {}
-    };
-    es.onerror = () => {
-      es.close();
-      eventSourceRef.current = null;
-      streamRunIdRef.current = null;
-    };
   }, [closeStream, loadResponses]);
 
+  // When question changes: clear content and run selection so we don't show the previous question, then fetch for the new one.
   useEffect(() => {
     if (!selectedQuestion) {
+      prevQuestionIdRef.current = null;
       setResponses([]);
       setRunIds([]);
       setCurrentRunId(null);
       setLastSubmittedFeedback(null);
+      setStreamingContent({});
       closeStream();
       return;
     }
-    loadResponses(selectedQuestion.id);
-    const t = setInterval(() => loadResponses(selectedQuestion.id, currentRunId || undefined), POLL_MS);
+    const questionJustChanged = prevQuestionIdRef.current !== selectedQuestion.id;
+    if (questionJustChanged) {
+      prevQuestionIdRef.current = selectedQuestion.id;
+      setResponses([]);
+      setRunIds([]);
+      setCurrentRunId(null);
+      setStreamingContent({});
+      closeStream();
+    }
+    const isStreamingThisRun = streamRunIdRef.current === currentRunId;
+    // When question just changed, always full load (runs + responses/list). Otherwise use runsOnly only while streaming this run.
+    if (questionJustChanged) {
+      loadResponses(selectedQuestion.id, undefined);
+    } else if (isStreamingThisRun) {
+      loadResponses(selectedQuestion.id, undefined, { runsOnly: true });
+    } else {
+      loadResponses(selectedQuestion.id, undefined);
+    }
+    const t = setInterval(() => {
+      const streaming = streamRunIdRef.current === currentRunId;
+      if (streaming) {
+        loadResponses(selectedQuestion.id, undefined, { runsOnly: true });
+      } else {
+        loadResponses(selectedQuestion.id, undefined);
+      }
+    }, POLL_MS);
     return () => clearInterval(t);
   }, [selectedQuestion?.id, currentRunId]);
+
+  // Only open stream when run is in progress (no stage 3 yet). Don't open for completed runs when clicking a previous question.
+  useEffect(() => {
+    if (!selectedQuestion?.id || !currentRunId) return;
+    if (streamRunIdRef.current === currentRunId) return;
+    const runResponses = responses.filter((r) => r.run_id === currentRunId);
+    const hasStage3 = runResponses.some((r) => r.stage === 3);
+    if (hasStage3) return; // implementation done, no need to stream
+    openStream(selectedQuestion.id, currentRunId);
+  }, [selectedQuestion?.id, currentRunId, responses, openStream]);
 
   // When user switches run (e.g. from dropdown), close stream for previous run
   useEffect(() => {
@@ -133,13 +195,23 @@ export default function Home() {
     setLoading(true);
     try {
       const res = await questionsApi.create(text, sessionId);
+      if (!res.run_id) {
+        console.warn('[stream] create() did not return run_id:', res);
+      }
       setInput('');
-      await loadQuestions();
+      // Open stream immediately so backend has a subscriber before pipeline sends (broker buffers if we're late)
+      if (res.run_id) {
+        streamRunIdRef.current = res.run_id;
+        openStream(res.question_id, res.run_id);
+        setTimeout(() => {
+          if (streamRunIdRef.current !== res.run_id) openStream(res.question_id, res.run_id);
+        }, 100);
+      }
       setSelectedQuestion({ id: res.question_id, content: res.content, created_at: res.created_at });
       setResponses([]);
-      setCurrentRunId(res.run_id);
-      loadResponses(res.question_id, res.run_id);
-      openStream(res.question_id, res.run_id);
+      setRunIds(res.run_id ? [res.run_id] : []);
+      setCurrentRunId(res.run_id ?? null);
+      await loadQuestions();
     } catch (e) {
       console.error(e);
       alert('Failed to submit');
@@ -158,9 +230,12 @@ export default function Home() {
       setResponses([]);
       const runId = (res as { question_id: string; run_id?: string; content: string; created_at: string }).run_id;
       if (runId) {
+        setRunIds([runId]);
         setCurrentRunId(runId);
-        loadResponses(res.question_id, runId);
         openStream(res.question_id, runId);
+        setTimeout(() => {
+          if (streamRunIdRef.current !== runId) openStream(res.question_id, runId);
+        }, 100);
       } else {
         loadResponses(res.question_id);
       }
@@ -216,8 +291,9 @@ export default function Home() {
 
   const stageNames: Record<number, string> = { 1: 'requirement', 2: 'design', 3: 'implementation', 4: 'feedback' };
   const displayResponses = React.useMemo(() => {
-    const byStage = new Map(responses.map((r) => [r.stage, r]));
-    const list: AgentResponse[] = [...responses];
+    const forCurrentRun = currentRunId ? responses.filter((r) => r.run_id === currentRunId) : responses;
+    const byStage = new Map(forCurrentRun.map((r) => [r.stage, r]));
+    const list: AgentResponse[] = [...forCurrentRun];
     for (let s = 1; s <= 4; s++) {
       if (byStage.has(s)) continue;
       const content = streamingContent[s];
@@ -235,15 +311,35 @@ export default function Home() {
     }
     list.sort((a, b) => a.stage - b.stage);
     return list;
-  }, [responses, streamingContent, selectedQuestion?.id, currentRunId]);
+  }, [responses, currentRunId, streamingContent, selectedQuestion?.id]);
 
   const lastResponse = displayResponses.length > 0 ? displayResponses[displayResponses.length - 1] : null;
   const stage = lastResponse?.stage ?? 0;
+  const showFeedbackSection = lastResponse != null && lastResponse.stage >= 3;
+
+  // Auto-scroll to bottom when stream or responses update
+  useEffect(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [displayResponses, streamingContent]);
+
+  const toggleCollapsed = useCallback((id: string) => {
+    setCollapsedStages((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
+  const copyStageContent = useCallback(async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+    } catch (_) {}
+  }, []);
 
   return (
     <div className="app-root" style={{ minHeight: '100vh' }}>
       <header className="app-header">
-        <h1>Atoms Demo – Multi-Agent App Builder</h1>
+        <h1 data-app-header>
+          Atoms Demo – Multi-Agent App Builder {'\u{1F916}'}
+        </h1>
       </header>
 
       <div className="app-body">
@@ -353,34 +449,120 @@ export default function Home() {
                 )}
               </div>
 
-              <div className="app-main-inner app-main-pad" style={{ padding: 24 }}>
+              <div ref={mainScrollRef} className="app-main-inner app-main-pad" style={{ padding: 24 }}>
                 {displayResponses.length === 0 && (
                   <p style={{ color: 'var(--muted)' }}>Waiting for agent responses…</p>
                 )}
-                {displayResponses.map((r) => (
-                  <div key={r.id} style={{ marginBottom: 24, minWidth: 0 }}>
-                    <h3 style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 8 }}>
-                      Stage {r.stage}: {r.stage_name}
-                    </h3>
-                    {r.stage === 1 && <MarkdownView content={r.content} />}
-                    {r.stage === 2 && r.payload?.type === 'wireframe' && (
-                      <WireframeView content={r.content} />
-                    )}
-                    {r.stage === 2 && r.payload?.type === 'react' && (
-                      <ReactDesignView content={r.content} />
-                    )}
-                    {r.stage === 2 && r.payload?.type !== 'wireframe' && r.payload?.type !== 'react' && (
-                      <CodeView content={r.content} />
-                    )}
-                    {r.stage === 3 && (
-                      <>
-                        <CodeView content={r.content} />
-                        <ReactAppView content={r.content} />
-                      </>
-                    )}
-                    {r.stage === 4 && <MarkdownView content={r.content} />}
-                  </div>
-                ))}
+                {displayResponses.map((r) => {
+                  const isStreamingStage = Boolean(streamingContent[r.stage]);
+                  const isCollapsed = isStreamingStage ? false : collapsedStages[r.id] !== false;
+                  return (
+                    <div key={r.id} style={{ marginBottom: 24, minWidth: 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                          padding: '10px 12px',
+                          background: 'var(--panel)',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => toggleCollapsed(r.id)}
+                      >
+                        <h3 style={{ fontSize: 12, color: 'var(--accent)', margin: 0 }}>
+                          Stage {r.stage}: {r.stage_name}
+                        </h3>
+                        <div style={{ display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => copyStageContent(r.content)}
+                            style={{
+                              padding: '4px 10px',
+                              fontSize: 12,
+                              border: '1px solid var(--border)',
+                              borderRadius: 6,
+                              background: 'var(--bg)',
+                              color: 'var(--text)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Copy
+                          </button>
+                          <span style={{ color: 'var(--muted)', fontSize: 14 }}>{isCollapsed ? '▼' : '▲'}</span>
+                        </div>
+                      </div>
+                      {!isCollapsed && (
+                        <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
+                          {r.stage === 1 && <MarkdownView content={r.content} />}
+                          {r.stage === 2 && r.payload?.type === 'wireframe' && (
+                            <WireframeView content={r.content} />
+                          )}
+                          {r.stage === 2 && r.payload?.type === 'react' && (
+                            <ReactDesignView content={r.content} />
+                          )}
+                          {r.stage === 2 && r.payload?.type !== 'wireframe' && r.payload?.type !== 'react' && (
+                            <CodeView content={r.content} />
+                          )}
+                          {r.stage === 3 && (
+                            <>
+                              <CodeView content={r.content} />
+                              {streamingContent[3] ? (
+                                <div
+                                  style={{
+                                    marginTop: 12,
+                                    padding: 24,
+                                    background: 'var(--panel)',
+                                    borderRadius: 8,
+                                    border: '1px solid var(--border)',
+                                    minHeight: 200,
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      height: 12,
+                                      width: '40%',
+                                      background: 'linear-gradient(90deg, var(--border) 25%, var(--muted) 50%, var(--border) 75%)',
+                                      backgroundSize: '200% 100%',
+                                      animation: 'shimmer 1.5s ease-in-out infinite',
+                                      borderRadius: 4,
+                                      marginBottom: 12,
+                                    }}
+                                  />
+                                  <div
+                                    style={{
+                                      height: 12,
+                                      width: '70%',
+                                      background: 'linear-gradient(90deg, var(--border) 25%, var(--muted) 50%, var(--border) 75%)',
+                                      backgroundSize: '200% 100%',
+                                      animation: 'shimmer 1.5s ease-in-out infinite 0.2s',
+                                      borderRadius: 4,
+                                      marginBottom: 12,
+                                    }}
+                                  />
+                                  <div
+                                    style={{
+                                      height: 80,
+                                      width: '100%',
+                                      background: 'linear-gradient(90deg, var(--border) 25%, var(--muted) 50%, var(--border) 75%)',
+                                      backgroundSize: '200% 100%',
+                                      animation: 'shimmer 1.5s ease-in-out infinite 0.4s',
+                                      borderRadius: 4,
+                                    }}
+                                  />
+                                  <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--muted)' }}>Live preview will appear when implementation finishes streaming.</p>
+                                </div>
+                              ) : (
+                                <ImplementationPreview content={r.content} />
+                              )}
+                            </>
+                          )}
+                          {r.stage === 4 && <MarkdownView content={r.content} />}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 {lastSubmittedFeedback && currentRunId === lastSubmittedFeedback.runId && (
                   <div
                     style={{
@@ -397,7 +579,7 @@ export default function Home() {
                 )}
               </div>
 
-              {lastResponse?.awaiting_feedback && (
+              {showFeedbackSection && (
                 <div className="app-section-pad" style={{ padding: 16, borderTop: '1px solid var(--border)', background: 'var(--panel)' }}>
                   <label style={{ display: 'block', marginBottom: 8, fontSize: 14 }}>Your feedback</label>
                   <textarea

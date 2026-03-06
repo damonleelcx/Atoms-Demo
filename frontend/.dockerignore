@@ -1,0 +1,13 @@
+# So --build-arg NEXT_PUBLIC_API_URL is the single source of truth; .env must not override it
+.env
+.env.*
+.env.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
+
+# Dependencies and build output (handled by multi-stage)
+node_modules
+.next
+npm-debug.log*

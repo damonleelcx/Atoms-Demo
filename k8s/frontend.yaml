@@ -1,5 +1,5 @@
-# Frontend image must be built with NEXT_PUBLIC_API_URL at build time. See README "Building Docker images" (bash + Command Prompt).
-# For same-origin (ingress /api -> backend), use empty: --build-arg NEXT_PUBLIC_API_URL=
+# Frontend only. Backend has its own Ingress (backend-ingress.yaml) at api.your-domain.com.
+# Build frontend with NEXT_PUBLIC_API_URL=http://api.your-domain.com (see README).
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -45,19 +45,24 @@ spec:
       targetPort: 3000
   type: ClusterIP
 ---
-# Ingress for frontend (/) and backend (/api).
-# - Local: use your-domain.com → add "127.0.0.1 your-domain.com" to hosts, then port-forward ingress (e.g. kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 80:80) or minikube tunnel.
-# - Minikube (no hosts): use the rule with no host below → open http://$(minikube ip).
-# - Production: change your-domain.com to your real domain and add spec.tls for HTTPS.
+# Ingress for frontend only. Backend is at api.your-domain.com (see backend-ingress.yaml).
+# Add your-domain.com and api.your-domain.com to hosts (same IP) when using tunnel or port-forward.
+# proxy-buffering off so /api/.../responses/stream (SSE) is streamed through when API goes via frontend.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: frontend-ingress
   namespace: atoms-demo
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - your-domain.com
   rules:
-    # Local or production: host your-domain.com (local: add 127.0.0.1 your-domain.com to hosts + port-forward ingress; production: point DNS here + add TLS)
     - host: your-domain.com
       http:
         paths:
@@ -68,14 +73,6 @@ spec:
                 name: frontend
                 port:
                   number: 3000
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: backend
-                port:
-                  number: 8080
-    # Minikube / local: no host → access via http://$(minikube ip) or http://localhost if you port-forward
     - http:
         paths:
           - path: /
@@ -85,10 +82,36 @@ spec:
                 name: frontend
                 port:
                   number: 3000
-          - path: /api
-            pathType: Prefix
+---
+# Rewrite broken path /$NEXT_PUBLIC_API_URL/... → /... using rewrite-target (no snippet).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-rewrite-ingress
+  namespace: atoms-demo
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: "$2"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: your-domain.com
+      http:
+        paths:
+          # Match literal $ or %24, then capture rest (e.g. /api/questions) as $2
+          - path: "/(\\$NEXT_PUBLIC_API_URL|%24NEXT_PUBLIC_API_URL)(/.*)"
+            pathType: ImplementationSpecific
             backend:
               service:
-                name: backend
+                name: frontend
                 port:
-                  number: 8080
+                  number: 3000
+    - http:
+        paths:
+          - path: "/(\\$NEXT_PUBLIC_API_URL|%24NEXT_PUBLIC_API_URL)(/.*)"
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000

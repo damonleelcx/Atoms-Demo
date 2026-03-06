@@ -1,0 +1,29 @@
+# Backend on its own domain (api.your-domain.com). Frontend is built with NEXT_PUBLIC_API_URL=http://api.your-domain.com.
+# Add api.your-domain.com to hosts (same IP as your-domain.com) when using minikube tunnel or port-forward.
+# proxy-buffering off so SSE /responses/stream is streamed in real time.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-ingress
+  namespace: atoms-demo
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.your-domain.com
+  rules:
+    - host: api.your-domain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8080

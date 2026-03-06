@@ -88,6 +88,29 @@ const wireframeStyles = {
   },
 };
 
+function WireframeSkeleton() {
+  const shimmer = {
+    background: 'linear-gradient(90deg, var(--border, #3f3f46) 25%, var(--muted, #71717a) 50%, var(--border, #3f3f46) 75%)',
+    backgroundSize: '200% 100%',
+    animation: 'shimmer 1.5s ease-in-out infinite',
+    borderRadius: 4,
+  };
+  return (
+    <div className="wireframe-view" style={wireframeStyles.root}>
+      <div style={{ ...wireframeStyles.title, ...shimmer, width: 120, height: 12 }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+        <div style={{ ...shimmer, height: 24, width: '70%' }} />
+        <div style={{ ...shimmer, height: 60, width: '100%' }} />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ ...shimmer, height: 36, width: 80 }} />
+          <div style={{ ...shimmer, height: 36, width: 100 }} />
+        </div>
+      </div>
+      <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--muted)' }}>Wireframe loading…</p>
+    </div>
+  );
+}
+
 function WireframeNodeRender({ node }: { node: WireframeNode }) {
   switch (node.type) {
     case 'container':
@@ -175,24 +198,11 @@ export function WireframeView({ content }: { content: string }) {
   }, [content]);
 
   if (error) {
-    return (
-      <div className="wireframe-view" style={wireframeStyles.root}>
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>{error}</p>
-        <pre style={{ fontSize: 11, overflow: 'auto', maxHeight: 200 }}>
-          {content.slice(0, 500)}
-        </pre>
-      </div>
-    );
+    return <WireframeSkeleton />;
   }
 
   if (!spec || !spec.children?.length) {
-    return (
-      <div className="wireframe-view" style={wireframeStyles.root}>
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>
-          Building wireframe…
-        </p>
-      </div>
-    );
+    return <WireframeSkeleton />;
   }
 
   const rootLayout = spec.layout || 'column';

@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"log"
 	"sync"
 )
 
@@ -11,23 +12,40 @@ type Event struct {
 	Done  bool   `json:"done"`
 }
 
+const maxBufferEvents = 2000 // cap per run_id to avoid unbounded growth if no one subscribes
+
 // Broker fans out stream events to subscribers by run_id.
+// If there is no subscriber when Send is called, events are buffered and replayed when Subscribe is called.
 type Broker struct {
-	mu   sync.RWMutex
-	subs map[string]chan<- Event
+	mu      sync.RWMutex
+	subs    map[string]chan<- Event
+	buffers map[string][]Event // events sent before anyone subscribed, replayed on Subscribe
 }
 
 // NewBroker creates a new stream broker.
 func NewBroker() *Broker {
-	return &Broker{subs: make(map[string]chan<- Event)}
+	return &Broker{
+		subs:    make(map[string]chan<- Event),
+		buffers: make(map[string][]Event),
+	}
 }
 
-// Subscribe registers a subscriber for runID. The channel receives events until closed.
+// Subscribe registers a subscriber for runID. Buffered events (if any) are replayed first, then live events.
 // Caller must consume from the channel; the broker will not block on send.
 func (b *Broker) Subscribe(runID string, ch chan<- Event) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	replay := b.buffers[runID]
+	delete(b.buffers, runID)
 	b.subs[runID] = ch
+	b.mu.Unlock()
+	for _, ev := range replay {
+		select {
+		case ch <- ev:
+		default:
+			log.Printf("[stream] broker: replay channel full for run_id=%s (event dropped)", runID)
+			return
+		}
+	}
 }
 
 // Unsubscribe removes the subscriber for runID and closes its channel.
@@ -40,17 +58,26 @@ func (b *Broker) Unsubscribe(runID string) {
 	}
 }
 
-// Send sends an event to the subscriber for runID if any. Non-blocking; drops if no subscriber or channel full.
+// Send sends an event to the subscriber for runID if any. If no subscriber, event is buffered (up to maxBufferEvents per run_id).
 func (b *Broker) Send(runID string, ev Event) {
 	b.mu.RLock()
 	ch, ok := b.subs[runID]
 	b.mu.RUnlock()
-	if !ok || ch == nil {
+	if ok && ch != nil {
+		select {
+		case ch <- ev:
+			return
+		default:
+			log.Printf("[stream] broker: channel full for run_id=%s (event dropped)", runID)
+			return
+		}
+	}
+	// No subscriber: buffer for later replay
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	buf := b.buffers[runID]
+	if len(buf) >= maxBufferEvents {
 		return
 	}
-	select {
-	case ch <- ev:
-	default:
-		// channel full or closed, skip
-	}
+	b.buffers[runID] = append(buf, ev)
 }

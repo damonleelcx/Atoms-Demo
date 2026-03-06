@@ -5,14 +5,19 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
+	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"atoms-demo/backend/internal/agents"
 	"atoms-demo/backend/internal/kafka"
+	"atoms-demo/backend/internal/llm"
 	"atoms-demo/backend/internal/middleware"
 	"atoms-demo/backend/internal/mongo"
 	"atoms-demo/backend/internal/postgres"
 	"atoms-demo/backend/internal/stream"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // Transcriber converts audio to text (e.g. Whisper). May be nil; then audio handlers use fallback text.
@@ -21,13 +26,15 @@ type Transcriber interface {
 }
 
 type Handlers struct {
-	Questions      *postgres.Repo
-	Responses      *mongo.Repo
-	WriterReq      *kafka.Writer
-	Transcriber    Transcriber
-	Broker         *stream.Broker
-	QuestionsCache *middleware.QuestionsListCache
-	ResponseCache  *middleware.ResponseCache
+	Questions       *postgres.Repo
+	Responses       *mongo.Repo
+	WriterReq       *kafka.Writer
+	Transcriber     Transcriber
+	Broker          *stream.Broker
+	LLMClient       *llm.Client
+	QuestionsCache  *middleware.QuestionsListCache
+	ResponseCache   *middleware.ResponseCache
+	pipelineStarted sync.Map // runID -> *sync.Mutex, to start pipeline only once per run_id
 }
 
 func (h *Handlers) SubmitQuestion(c *gin.Context) {
@@ -49,18 +56,8 @@ func (h *Handlers) SubmitQuestion(c *gin.Context) {
 		h.ResponseCache.InvalidateQuestion(c.Request.Context(), q.ID.String())
 	}
 	runID := uuid.New().String()
-	msg := &kafka.PipelineMessage{
-		QuestionID: q.ID.String(),
-		SessionID:  body.SessionID,
-		RunID:      runID,
-		Input:      body.Content,
-	}
-	if err := kafka.WriteMessage(c.Request.Context(), h.WriterReq, msg); err != nil {
-		log.Printf("pipeline: kafka write failed for question %s: %v", q.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start pipeline"})
-		return
-	}
-	log.Printf("pipeline: started for question %s run %s", q.ID, runID)
+	// Pipeline runs when the client connects to GET .../responses?run_id=... (streaming only, no Kafka queue)
+	log.Printf("pipeline: question %s run %s (pipeline will run when client connects to stream)", q.ID, runID)
 	c.JSON(http.StatusOK, gin.H{
 		"question_id": q.ID.String(),
 		"run_id":      runID,
@@ -110,35 +107,172 @@ func (h *Handlers) GetQuestion(c *gin.Context) {
 func (h *Handlers) GetResponses(c *gin.Context) {
 	questionID := c.Param("id")
 	runID := c.Query("run_id")
+	listOnly := c.Query("list") == "1"
 	if questionID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "questionId required"})
 		return
 	}
 	ctx := c.Request.Context()
+
+	// run_id + list=1: return stored responses for that run from Mongo/cache (one-shot SSE).
+	if runID != "" && listOnly {
+		h.serveResponsesListStream(c, questionID, runID, ctx)
+		return
+	}
+	// run_id without list: live pipeline stream.
+	if runID != "" {
+		h.serveResponsesStream(c, questionID, runID, ctx)
+		return
+	}
+	h.serveResponsesListStream(c, questionID, "", ctx)
+}
+
+// GetResponsesList returns stored responses as JSON (Mongo/cache). For previous questions only; do not use stream API.
+func (h *Handlers) GetResponsesList(c *gin.Context) {
+	questionID := c.Param("id")
+	runID := c.Query("run_id")
+	if questionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "questionId required"})
+		return
+	}
+	ctx := c.Request.Context()
+	list, err := h.getResponsesListFromStore(ctx, questionID, runID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"responses": list})
+}
+
+// getResponsesListFromStore returns responses from cache or Mongo for the given question and optional runID.
+func (h *Handlers) getResponsesListFromStore(ctx context.Context, questionID, runID string) ([]mongo.AgentResponse, error) {
+	var list []mongo.AgentResponse
+	useCache := h.ResponseCache != nil
 	cacheKey := "responses:" + questionID + ":" + runID
-	if h.ResponseCache != nil {
+	if useCache && runID != "" {
 		if data, ok := h.ResponseCache.Get(ctx, cacheKey); ok {
-			log.Printf("[cache] GET /api/questions/%s/responses run_id=%s: hit", questionID, runID)
-			c.Data(http.StatusOK, "application/json", data)
-			return
+			var payload struct {
+				Responses []mongo.AgentResponse `json:"responses"`
+			}
+			if json.Unmarshal(data, &payload) == nil {
+				return payload.Responses, nil
+			}
 		}
 	}
-	log.Printf("[cache] GET /api/questions/%s/responses run_id=%s: miss", questionID, runID)
-	list, err := h.Responses.ListByQuestionID(ctx, questionID, runID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	if useCache && runID == "" {
+		if data, ok := h.ResponseCache.Get(ctx, "responses:"+questionID+":"); ok {
+			var payload struct {
+				Responses []mongo.AgentResponse `json:"responses"`
+			}
+			if json.Unmarshal(data, &payload) == nil {
+				return payload.Responses, nil
+			}
+		}
 	}
-	payload := gin.H{"responses": list}
-	data, err := json.Marshal(payload)
+	var err error
+	list, err = h.Responses.ListByQuestionID(ctx, questionID, runID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return nil, err
 	}
-	if h.ResponseCache != nil {
+	if useCache {
+		payload := gin.H{"responses": list}
+		data, _ := json.Marshal(payload)
 		h.ResponseCache.Set(ctx, cacheKey, data)
 	}
-	c.Data(http.StatusOK, "application/json", data)
+	return list, nil
+}
+
+// serveResponsesListStream returns SSE stream with a single data event containing {"responses": [...]}, then closes.
+// If runID is non-empty, only responses for that run are returned (for Mongo/cache fetch by run).
+func (h *Handlers) serveResponsesListStream(c *gin.Context, questionID, runID string, ctx context.Context) {
+	list, err := h.getResponsesListFromStore(ctx, questionID, runID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+	if _, err := c.Writer.Write([]byte(": connected\n\n")); err != nil {
+		return
+	}
+	c.Writer.Flush()
+	payload := gin.H{"responses": list}
+	data, _ := json.Marshal(payload)
+	if _, err := c.Writer.Write([]byte("data: " + string(data) + "\n\n")); err != nil {
+		return
+	}
+	c.Writer.Flush()
+}
+
+// serveResponsesStream streams agent output as SSE for the given run_id. Starts the in-process pipeline once when the first client connects.
+func (h *Handlers) serveResponsesStream(c *gin.Context, questionID, runID string, ctx context.Context) {
+	if h.Broker == nil || h.LLMClient == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "streaming not enabled"})
+		return
+	}
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+	if _, err := c.Writer.Write([]byte(": connected\n\n")); err != nil {
+		return
+	}
+	c.Writer.Flush()
+
+	ch := make(chan stream.Event, 64)
+	h.Broker.Subscribe(runID, ch)
+	defer h.Broker.Unsubscribe(runID)
+	log.Printf("[stream] client subscribed run_id=%s question_id=%s", runID, questionID)
+
+	// Start pipeline once per run_id (in-process; no Kafka). Load question to get content.
+	type runGuard struct{ mu sync.Mutex; started bool }
+	guardVal, _ := h.pipelineStarted.LoadOrStore(runID, &runGuard{})
+	guard := guardVal.(*runGuard)
+	guard.mu.Lock()
+	list, _ := h.Responses.ListByQuestionID(ctx, questionID, runID)
+	shouldStart := len(list) == 0 && !guard.started
+	if shouldStart {
+		guard.started = true
+		qID, parseErr := uuid.Parse(questionID)
+		if parseErr == nil {
+			if q, getErr := h.Questions.GetQuestionByID(ctx, qID); getErr == nil {
+				content, sessionID := q.Content, q.SessionID
+				go func() {
+					// Use Background so pipeline keeps running after client disconnects; results are saved to Mongo.
+					pipeCtx := context.Background()
+					_ = agents.RunPipelineSync(pipeCtx, questionID, runID, content, sessionID, h.Broker, h.Responses, h.LLMClient)
+				}()
+			}
+		}
+	}
+	guard.mu.Unlock()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-heartbeat.C:
+			if _, err := c.Writer.Write([]byte(": heartbeat\n\n")); err != nil {
+				return
+			}
+			c.Writer.Flush()
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, _ := json.Marshal(ev)
+			if _, err := c.Writer.Write([]byte("data: " + string(data) + "\n\n")); err != nil {
+				return
+			}
+			c.Writer.Flush()
+		}
+	}
 }
 
 func (h *Handlers) GetRunIDs(c *gin.Context) {
@@ -214,41 +348,9 @@ func (h *Handlers) SubmitFeedback(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to restart pipeline"})
 		return
 	}
+	if h.ResponseCache != nil {
+		h.ResponseCache.InvalidateQuestion(c.Request.Context(), questionID)
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "pipeline_restarted"})
 }
 
-// GetResponsesStream streams agent output as SSE for the given run_id.
-func (h *Handlers) GetResponsesStream(c *gin.Context) {
-	questionID := c.Param("id")
-	runID := c.Query("run_id")
-	if questionID == "" || runID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id and run_id required"})
-		return
-	}
-	if h.Broker == nil {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "streaming not enabled"})
-		return
-	}
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-	ch := make(chan stream.Event, 64)
-	h.Broker.Subscribe(runID, ch)
-	defer h.Broker.Unsubscribe(runID)
-	for {
-		select {
-		case <-c.Request.Context().Done():
-			return
-		case ev, ok := <-ch:
-			if !ok {
-				return
-			}
-			data, _ := json.Marshal(ev)
-			if _, err := c.Writer.Write([]byte("data: " + string(data) + "\n\n")); err != nil {
-				return
-			}
-			c.Writer.Flush()
-		}
-	}
-}

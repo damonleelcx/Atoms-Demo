@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"atoms-demo/backend/internal/agents"
 	"atoms-demo/backend/internal/config"
 	"atoms-demo/backend/internal/handlers"
@@ -22,6 +21,8 @@ import (
 	"atoms-demo/backend/internal/postgres"
 	"atoms-demo/backend/internal/redis"
 	"atoms-demo/backend/internal/stream"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -121,6 +122,7 @@ func main() {
 		WriterReq:      writerReq,
 		Transcriber:    llmClient,
 		Broker:         streamBroker,
+		LLMClient:      llmClient,
 		QuestionsCache: questionsCache,
 		ResponseCache:  responseCache,
 	}
@@ -129,6 +131,9 @@ func main() {
 	r := gin.Default()
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware())
+	r.Use(stripNextPublicApiUrlPrefix()) // old frontend bundle may request /$NEXT_PUBLIC_API_URL/api/...
+	// Reject empty POST /api/questions before rate limit so spam does not burn the bucket
+	r.Use(middleware.RejectEmptyQuestionPOST())
 	limit := cfg.Redis.RateLimit
 	if limit <= 0 {
 		limit = 120
@@ -147,11 +152,12 @@ func main() {
 	r.GET("/api/questions/:id", h.GetQuestion)
 	r.POST("/api/questions/audio", h.SubmitQuestionAudio)
 	r.GET("/api/questions/:id/responses", h.GetResponses)
-	r.GET("/api/questions/:id/responses/stream", h.GetResponsesStream)
+	r.GET("/api/questions/:id/responses/list", h.GetResponsesList)
 	r.GET("/api/questions/:id/runs", h.GetRunIDs)
 	r.POST("/api/questions/:id/feedback", h.SubmitFeedback)
 	r.POST("/api/questions/:id/feedback/audio", h.SubmitFeedbackAudio)
 
+	r.GET("/", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "atoms-backend"}) })
 	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
 	srv := &http.Server{
@@ -188,6 +194,28 @@ func corsMiddleware() gin.HandlerFunc {
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
+		}
+		c.Next()
+	}
+}
+
+// stripNextPublicApiUrlPrefix rewrites paths like /$NEXT_PUBLIC_API_URL/api/questions to /api/questions
+// so old frontend bundles that baked in the literal env var name still hit the correct routes.
+func stripNextPublicApiUrlPrefix() gin.HandlerFunc {
+	const prefix1 = "/$NEXT_PUBLIC_API_URL"
+	const prefix2 = "/%24NEXT_PUBLIC_API_URL" // URL-encoded $
+	return func(c *gin.Context) {
+		p := c.Request.URL.Path
+		if strings.HasPrefix(p, prefix1) {
+			c.Request.URL.Path = p[len(prefix1):]
+			if c.Request.URL.Path == "" {
+				c.Request.URL.Path = "/"
+			}
+		} else if strings.HasPrefix(p, prefix2) {
+			c.Request.URL.Path = p[len(prefix2):]
+			if c.Request.URL.Path == "" {
+				c.Request.URL.Path = "/"
+			}
 		}
 		c.Next()
 	}

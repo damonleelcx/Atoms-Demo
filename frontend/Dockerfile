@@ -7,8 +7,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Injected at build time (e.g. --build-arg NEXT_PUBLIC_API_URL=... or from .env in docker-compose/K8s build)
-ARG NEXT_PUBLIC_API_URL
+# Injected at build time. Default empty for same-origin/Ingress; set for port-forward (e.g. http://localhost:8080).
+ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build

@@ -15,6 +15,7 @@ resources:
   - zookeeper.yaml
   - kafka.yaml
   - backend.yaml
+  - backend-ingress.yaml
   - frontend.yaml
 
 # Generate Secret from k8s/.env for both backend and frontend

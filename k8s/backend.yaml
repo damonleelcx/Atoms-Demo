@@ -14,7 +14,7 @@ data:
       database: atoms
     redis:
       addr: "redis:6379"
-      rate_limit: 10
+      rate_limit: 0
       rate_window_sec: 60
     kafka:
       brokers:
