@@ -2,7 +2,7 @@
 
 Multi-agent app builder: describe an app you want, and agents (requirement → design → implementation → feedback) produce documentation, UI design, and code. Feedback loops until you're satisfied.
 
-# High Speed Demo
+# Demo
 ![0306-ezgif com-video-to-gif-converter](https://github.com/user-attachments/assets/e4d177b7-1ab1-4503-86ff-2c79e25039a2)
 
 ## Stack
