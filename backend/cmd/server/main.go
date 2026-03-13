@@ -131,7 +131,8 @@ func main() {
 	r := gin.Default()
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware())
-	r.Use(stripNextPublicApiUrlPrefix()) // old frontend bundle may request /$NEXT_PUBLIC_API_URL/api/...
+	r.Use(stripNextPublicApiUrlPrefix())
+	r.Use(middleware.RequireAuth()) // old frontend bundle may request /$NEXT_PUBLIC_API_URL/api/...
 	// Reject empty POST /api/questions before rate limit so spam does not burn the bucket
 	r.Use(middleware.RejectEmptyQuestionPOST())
 	limit := cfg.Redis.RateLimit
@@ -147,6 +148,7 @@ func main() {
 		r.Use(gin.WrapH(middleware.RateLimit(rdb, limit, window)(r)))
 	}
 
+	r.POST("/api/auth/login", h.Login)
 	r.POST("/api/questions", h.SubmitQuestion)
 	r.GET("/api/questions", h.ListQuestions)
 	r.GET("/api/questions/:id", h.GetQuestion)
@@ -190,7 +192,7 @@ func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, X-Session-ID, X-Run-ID")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Session-ID, X-Run-ID")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
 			return

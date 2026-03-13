@@ -9,6 +9,10 @@ backend/server.exe
 .env.local
 *.local
 
+# TLS / mkcert (do not commit certs or keys)
+your-domain.com+1-key.pem
+your-domain.com+1.pem
+
 # Generated secret (from .env) - do not commit with real keys
 k8s/secret-api-keys.generated.yaml
 # Kustomize secretGenerator reads this; do not commit with real keys

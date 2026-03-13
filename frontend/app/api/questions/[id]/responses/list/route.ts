@@ -27,9 +27,12 @@ export async function GET(
     : `/api/questions/${id}/responses/list`;
   const backendUrl = new URL(path, BACKEND_BASE);
   const requestImpl = backendUrl.protocol === 'https:' ? https : http;
+  const auth = request.headers.get('authorization');
+  const headers: Record<string, string> = {};
+  if (auth) headers['Authorization'] = auth;
 
   return new Promise<Response>((resolve) => {
-    const req = requestImpl.request(backendUrl, (backendRes) => {
+    const req = requestImpl.request(backendUrl, { headers }, (backendRes) => {
       let body = '';
       backendRes.on('data', (chunk) => (body += chunk));
       backendRes.on('end', () => {

@@ -30,10 +30,14 @@ export async function GET(
   const backendUrl = new URL(path, BACKEND_BASE);
   const requestImpl = backendUrl.protocol === 'https:' ? https : http;
 
+  const auth = request.headers.get('authorization');
+  const headers: Record<string, string> = { Accept: 'text/event-stream' };
+  if (auth) headers['Authorization'] = auth;
+
   return new Promise<Response>((resolve) => {
     const req = requestImpl.request(
       backendUrl,
-      { headers: { Accept: 'text/event-stream' } },
+      { headers },
       (backendRes) => {
         if (backendRes.statusCode && backendRes.statusCode >= 400) {
           let body = '';

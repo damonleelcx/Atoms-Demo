@@ -3,15 +3,31 @@
 import { AudioInput } from '@/components/AudioInput';
 import { CodeView } from '@/components/CodeView';
 import { ImplementationPreview } from '@/components/ImplementationPreview';
+import { LoginScreen } from '@/components/LoginScreen';
 import { MarkdownView } from '@/components/MarkdownView';
 import { ReactDesignView } from '@/components/ReactDesignView';
 import { WireframeView } from '@/components/WireframeView';
+import { isAuthenticated } from '@/lib/auth';
 import { questionsApi, type AgentResponse, type Question } from '@/lib/api';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 const POLL_MS = 5000;
 
 export default function Home() {
+  const [authenticated, setAuthenticated] = useState(false);
+
+  useEffect(() => {
+    if (isAuthenticated()) setAuthenticated(true);
+  }, []);
+
+  if (!authenticated) {
+    return <LoginScreen onSuccess={() => setAuthenticated(true)} />;
+  }
+
+  return <AtomsApp />;
+}
+
+function AtomsApp() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
   const [responses, setResponses] = useState<AgentResponse[]>([]);

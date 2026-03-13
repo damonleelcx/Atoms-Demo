@@ -38,18 +38,25 @@ function getApiBase(): string {
 }
 
 /** When API_BASE is set (e.g. http://api.your-domain.com), use it for all paths; otherwise same-origin (relative). */
-function apiUrl(path: string): string {
+export function apiUrl(path: string): string {
   if (path.startsWith('http')) return path;
   const p = path.startsWith('/') ? path : `/${path}`;
   const base = getApiBase();
   return base ? `${base}${p}` : p;
 }
 
+import { getToken } from '@/lib/auth';
+
+function authHeaders(extra?: HeadersInit): HeadersInit {
+  const token = getToken();
+  return { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra };
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const url = apiUrl(path);
   const res = await fetch(url, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(init?.headers as Record<string, string>) },
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -93,7 +100,7 @@ export const questionsApi = {
     (async () => {
       try {
         const res = await fetch(url, {
-          headers: { Accept: 'text/event-stream' },
+          headers: authHeaders({ Accept: 'text/event-stream' }),
           signal: ac.signal,
         });
         if (!res.ok) {
@@ -130,7 +137,7 @@ export const questionsApi = {
     return () => ac.abort();
   },
   createAudio: (blob: Blob, sessionId?: string) => {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...(authHeaders() as Record<string, string>) };
     if (sessionId) headers['X-Session-ID'] = sessionId;
     return fetch(apiUrl('/api/questions/audio'), {
       method: 'POST',
@@ -143,7 +150,9 @@ export const questionsApi = {
     const url = runId
       ? apiUrl(`/api/questions/${questionId}/responses/list?run_id=${encodeURIComponent(runId)}`)
       : apiUrl(`/api/questions/${questionId}/responses/list`);
-    return fetch(url).then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t)))));
+    return fetch(url, { headers: authHeaders() }).then((r) =>
+      r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t)))
+    );
   },
 
   /** GET responses: SSE (live stream or one-shot list). Use only for current/live run; use getResponsesList for previous questions. */
@@ -151,7 +160,7 @@ export const questionsApi = {
     const url = runId
       ? apiUrl(`/api/questions/${questionId}/responses?run_id=${encodeURIComponent(runId)}&list=1`)
       : apiUrl(`/api/questions/${questionId}/responses`);
-    const res = await fetch(url, { headers: { Accept: 'text/event-stream' } });
+    const res = await fetch(url, { headers: authHeaders({ Accept: 'text/event-stream' }) });
     if (!res.ok) throw new Error(await res.text());
     const ct = res.headers.get('content-type') || '';
     if (ct.includes('application/json')) {
@@ -191,7 +200,7 @@ export const questionsApi = {
     runId?: string,
     sessionId?: string
   ): Promise<{ status: string; feedback: string; run_id: string }> => {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...(authHeaders() as Record<string, string>) };
     if (runId) headers['X-Run-ID'] = runId;
     if (sessionId) headers['X-Session-ID'] = sessionId;
     return fetch(apiUrl(`/api/questions/${questionId}/feedback/audio`), {
