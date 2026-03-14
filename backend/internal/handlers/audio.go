@@ -78,7 +78,8 @@ func (h *Handlers) SubmitQuestionAudio(c *gin.Context) {
 	})
 }
 
-// SubmitFeedbackAudio accepts audio in body, transcribes with Whisper, then restarts pipeline with feedback.
+// SubmitFeedbackAudio accepts audio in body, transcribes with Whisper.
+// If query transcribe_only=1, returns only { feedback }; otherwise restarts pipeline with feedback and returns run_id.
 func (h *Handlers) SubmitFeedbackAudio(c *gin.Context) {
 	questionID := c.Param("id")
 	if questionID == "" {
@@ -101,6 +102,10 @@ func (h *Handlers) SubmitFeedbackAudio(c *gin.Context) {
 		if transcript != "" {
 			feedback = transcript
 		}
+	}
+	if c.Query("transcribe_only") == "1" {
+		c.JSON(http.StatusOK, gin.H{"feedback": feedback})
+		return
 	}
 	runID := c.GetHeader("X-Run-ID")
 	sessionID := c.GetHeader("X-Session-ID")

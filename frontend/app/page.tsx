@@ -295,27 +295,13 @@ function AtomsApp() {
     }
   };
 
+  // Hold-to-speak: transcribe only and fill the feedback box; stream restarts only when user clicks "Send feedback".
   const handleFeedbackAudio = async (blob: Blob) => {
     if (!selectedQuestion) return;
     setLoadingFeedback(true);
     try {
-      const data = await questionsApi.submitFeedbackAudio(
-        selectedQuestion.id,
-        blob,
-        currentRunId || undefined,
-        sessionId
-      );
+      const data = await questionsApi.submitFeedbackAudioTranscribeOnly(selectedQuestion.id, blob);
       if (data.feedback) setFeedback(data.feedback);
-      const newRunId = data.run_id;
-      if (newRunId) {
-        setRunIds((prev) => [newRunId, ...prev.filter((id) => id !== newRunId)]);
-        setCurrentRunId(newRunId);
-        setResponses([]);
-        closeStream();
-        openStream(selectedQuestion.id, newRunId);
-      } else {
-        loadResponses(selectedQuestion.id, currentRunId || undefined);
-      }
     } catch (e) {
       console.error(e);
       alert('Feedback audio failed');

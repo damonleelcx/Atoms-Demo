@@ -209,4 +209,16 @@ export const questionsApi = {
       headers,
     }).then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t)))));
   },
+  /** Transcribe only; does not submit feedback or restart pipeline. Use for hold-to-speak to fill the text box. */
+  submitFeedbackAudioTranscribeOnly: (
+    questionId: string,
+    blob: Blob
+  ): Promise<{ feedback: string }> => {
+    const headers: Record<string, string> = { ...(authHeaders() as Record<string, string>) };
+    return fetch(apiUrl(`/api/questions/${questionId}/feedback/audio?transcribe_only=1`), {
+      method: 'POST',
+      body: blob,
+      headers,
+    }).then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t)))));
+  },
 };
