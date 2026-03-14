@@ -3,20 +3,22 @@
 import React, { Component, useMemo, useState } from 'react';
 import { LiveProvider, LivePreview, LiveError } from 'react-live';
 
-/** Catches runtime errors in the live preview so we show the message instead of blank. */
+/** Catches runtime errors in the live preview so we show the message instead of blank. Stores message string only to avoid mutating read-only error.message (SyntaxError etc.). */
 class PreviewErrorBoundary extends Component<
-  { children: React.ReactNode; fallback: (error: Error) => React.ReactNode },
-  { error: Error | null }
+  { children: React.ReactNode; fallback: (message: string) => React.ReactNode },
+  { message: string | null }
 > {
-  state = { error: null as Error | null };
+  state = { message: null as string | null };
 
-  static getDerivedStateFromError(error: Error) {
-    return { error };
+  static getDerivedStateFromError(error: unknown) {
+    const msg =
+      error instanceof Error ? error.message : typeof error === 'string' ? error : String(error);
+    return { message: msg };
   }
 
   render() {
-    if (this.state.error) {
-      return this.props.fallback(this.state.error);
+    if (this.state.message) {
+      return this.props.fallback(this.state.message);
     }
     return this.props.children;
   }
@@ -28,6 +30,9 @@ class PreviewErrorBoundary extends Component<
  */
 function transformForReactLive(raw: string): string {
   let code = raw.trim();
+  // Fix common agent typo: "const handle SomeName" -> "const handleSomeName" (invalid identifier due to space)
+  code = code.replace(/\bconst\s+handle\s+([A-Z]\w*)\s*=/g, 'const handle$1 =');
+  code = code.replace(/\bfunction\s+handle\s+([A-Z]\w*)\s*\(/g, 'function handle$1(');
   // Remove import lines (single-line and multi-line)
   code = code.replace(/^import\s+.*?from\s+['"].*?['"]\s*;?\s*/gm, '');
   code = code.replace(/^export\s+default\s+/m, '');
@@ -103,7 +108,7 @@ export function ReactLiveAppView({ content }: { content: string }) {
             }}
           />
           <PreviewErrorBoundary
-            fallback={(err) => (
+            fallback={(message) => (
               <div
                 style={{
                   color: 'var(--error)',
@@ -112,9 +117,11 @@ export function ReactLiveAppView({ content }: { content: string }) {
                   background: 'color-mix(in srgb, var(--error) 12%, transparent)',
                   border: '1px solid var(--error)',
                   borderRadius: 6,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
                 }}
               >
-                <strong>Preview error:</strong> {err.message}
+                <strong>Preview error:</strong> {message}
               </div>
             )}
           >
