@@ -61,9 +61,9 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - your-domain.com
+        - ec2-18-118-6-21.us-east-2.compute.amazonaws.com
   rules:
-    - host: your-domain.com
+    - host: ec2-18-118-6-21.us-east-2.compute.amazonaws.com
       http:
         paths:
           - path: /
@@ -95,7 +95,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: your-domain.com
+    - host: ec2-18-118-6-21.us-east-2.compute.amazonaws.com
       http:
         paths:
           # Match literal $ or %24, then capture rest (e.g. /api/questions) as $2
