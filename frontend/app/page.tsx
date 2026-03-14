@@ -501,7 +501,7 @@ function AtomsApp() {
                 )}
                 {displayResponses.map((r) => {
                   const isStreamingStage = Boolean(streamingContent[r.stage]);
-                  const isCollapsed = isStreamingStage ? false : collapsedStages[r.id] !== false;
+                  const isCollapsed = isStreamingStage ? false : collapsedStages[r.id] === true;
                   return (
                     <div key={r.id} style={{ marginBottom: 24, minWidth: 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                       <div
@@ -550,65 +550,81 @@ function AtomsApp() {
                           {r.stage === 2 && r.payload?.type !== 'wireframe' && r.payload?.type !== 'react' && (
                             <CodeView content={r.content} />
                           )}
-                          {r.stage === 3 && (
-                            <>
-                              <CodeView content={r.content} />
-                              {streamingContent[3] ? (
-                                <div
-                                  style={{
-                                    marginTop: 12,
-                                    padding: 24,
-                                    background: 'var(--panel)',
-                                    borderRadius: 8,
-                                    border: '1px solid var(--border)',
-                                    minHeight: 200,
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      height: 12,
-                                      width: '40%',
-                                      background: 'linear-gradient(90deg, var(--border) 25%, var(--muted) 50%, var(--border) 75%)',
-                                      backgroundSize: '200% 100%',
-                                      animation: 'shimmer 1.5s ease-in-out infinite',
-                                      borderRadius: 4,
-                                      marginBottom: 12,
-                                    }}
-                                  />
-                                  <div
-                                    style={{
-                                      height: 12,
-                                      width: '70%',
-                                      background: 'linear-gradient(90deg, var(--border) 25%, var(--muted) 50%, var(--border) 75%)',
-                                      backgroundSize: '200% 100%',
-                                      animation: 'shimmer 1.5s ease-in-out infinite 0.2s',
-                                      borderRadius: 4,
-                                      marginBottom: 12,
-                                    }}
-                                  />
-                                  <div
-                                    style={{
-                                      height: 80,
-                                      width: '100%',
-                                      background: 'linear-gradient(90deg, var(--border) 25%, var(--muted) 50%, var(--border) 75%)',
-                                      backgroundSize: '200% 100%',
-                                      animation: 'shimmer 1.5s ease-in-out infinite 0.4s',
-                                      borderRadius: 4,
-                                    }}
-                                  />
-                                  <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--muted)' }}>Live preview will appear when implementation finishes streaming.</p>
-                                </div>
-                              ) : (
-                                <ImplementationPreview content={r.content} />
-                              )}
-                            </>
-                          )}
+                          {r.stage === 3 && <CodeView content={r.content} />}
                           {r.stage === 4 && <MarkdownView content={r.content} />}
                         </div>
                       )}
                     </div>
                   );
                 })}
+                {/* Live preview: separate section so it stays visible when implementation stage is collapsed */}
+                {(() => {
+                  const implementationResponse = displayResponses.find((r) => r.stage === 3);
+                  const showLivePreview = implementationResponse != null || Boolean(streamingContent[3]);
+                  if (!showLivePreview) return null;
+                  return (
+                    <div style={{ marginBottom: 24, minWidth: 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          padding: '10px 12px',
+                          background: 'var(--panel)',
+                          borderBottom: '1px solid var(--border)',
+                        }}
+                      >
+                        <h3 style={{ fontSize: 12, color: 'var(--accent)', margin: 0 }}>Live preview</h3>
+                      </div>
+                      <div style={{ padding: 12 }}>
+                        {streamingContent[3] ? (
+                          <div
+                            style={{
+                              padding: 24,
+                              background: 'var(--panel)',
+                              borderRadius: 8,
+                              border: '1px solid var(--border)',
+                              minHeight: 200,
+                            }}
+                          >
+                            <div
+                              style={{
+                                height: 12,
+                                width: '40%',
+                                background: 'linear-gradient(90deg, var(--border) 25%, var(--muted) 50%, var(--border) 75%)',
+                                backgroundSize: '200% 100%',
+                                animation: 'shimmer 1.5s ease-in-out infinite',
+                                borderRadius: 4,
+                                marginBottom: 12,
+                              }}
+                            />
+                            <div
+                              style={{
+                                height: 12,
+                                width: '70%',
+                                background: 'linear-gradient(90deg, var(--border) 25%, var(--muted) 50%, var(--border) 75%)',
+                                backgroundSize: '200% 100%',
+                                animation: 'shimmer 1.5s ease-in-out infinite 0.2s',
+                                borderRadius: 4,
+                                marginBottom: 12,
+                              }}
+                            />
+                            <div
+                              style={{
+                                height: 80,
+                                width: '100%',
+                                background: 'linear-gradient(90deg, var(--border) 25%, var(--muted) 50%, var(--border) 75%)',
+                                backgroundSize: '200% 100%',
+                                animation: 'shimmer 1.5s ease-in-out infinite 0.4s',
+                                borderRadius: 4,
+                              }}
+                            />
+                            <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--muted)' }}>Live preview will appear when implementation finishes streaming.</p>
+                          </div>
+                        ) : implementationResponse ? (
+                          <ImplementationPreview content={implementationResponse.content} />
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {lastSubmittedFeedback && currentRunId === lastSubmittedFeedback.runId && (
                   <div
                     style={{
