@@ -168,20 +168,21 @@ function AtomsApp() {
       closeStream();
     }
     const isStreamingThisRun = streamRunIdRef.current === currentRunId;
-    // When question just changed, always full load (runs + responses/list). Otherwise use runsOnly only while streaming this run.
+    // When question just changed, always full load (runs + responses/list). Otherwise preserve user's run selection.
+    const runToLoad = questionJustChanged ? undefined : (currentRunId ?? undefined);
     if (questionJustChanged) {
       loadResponses(selectedQuestion.id, undefined);
     } else if (isStreamingThisRun) {
       loadResponses(selectedQuestion.id, undefined, { runsOnly: true });
     } else {
-      loadResponses(selectedQuestion.id, undefined);
+      loadResponses(selectedQuestion.id, runToLoad);
     }
     const t = setInterval(() => {
       const streaming = streamRunIdRef.current === currentRunId;
       if (streaming) {
         loadResponses(selectedQuestion.id, undefined, { runsOnly: true });
       } else {
-        loadResponses(selectedQuestion.id, undefined);
+        loadResponses(selectedQuestion.id, currentRunId ?? undefined);
       }
     }, POLL_MS);
     return () => clearInterval(t);
