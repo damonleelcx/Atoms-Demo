@@ -3,6 +3,7 @@
 Multi-agent app builder: describe an app you want, and agents (requirement → design → implementation → feedback) produce documentation, UI design, and code. Feedback loops until you're satisfied.
 
 # Demo
+
 ![0306-ezgif com-video-to-gif-converter](https://github.com/user-attachments/assets/e4d177b7-1ab1-4503-86ff-2c79e25039a2)
 
 ## Stack
@@ -371,15 +372,19 @@ When the ingress controller is **NodePort** (e.g. `kubectl get svc -n ingress-ng
 **Run tunnel in the background (AWS Linux / headless server):** You can't keep a terminal open; run the tunnel detached so it keeps running after you disconnect.
 
 - **Option A — nohup (one-off, may need passwordless sudo):**
+
   ```bash
   nohup sudo env HOME=/home/ec2-user MINIKUBE_HOME=/home/ec2-user/.minikube KUBECONFIG=/home/ec2-user/.kube/config minikube tunnel >> /tmp/minikube-tunnel.log 2>&1 </dev/null &
   ```
+
   Replace `/home/ec2-user` with your `$HOME`. Check with `tail -f /tmp/minikube-tunnel.log` and `kubectl get svc -n ingress-nginx ingress-nginx-controller`. If sudo prompts for a password, use Option B or C.
 
 - **Option B — screen (recommended):** Start a detached session, then attach when you need to check logs:
+
   ```bash
   screen -dmS tunnel sudo env HOME=/home/ec2-user MINIKUBE_HOME=/home/ec2-user/.minikube KUBECONFIG=/home/ec2-user/.kube/config minikube tunnel
   ```
+
   To view output later: `screen -r tunnel` (detach with Ctrl+A then D). To install screen: `sudo yum install -y screen` (Amazon Linux).
 
 - **Option C — kubectl port-forward (no tunnel):** If tunnel in background is unreliable, use port-forward instead (see "Alternative: HTTPS without minikube tunnel" below). Run in background with nohup:
@@ -388,9 +393,11 @@ When the ingress controller is **NodePort** (e.g. `kubectl get svc -n ingress-ng
   ```
 
 2. Get the EXTERNAL-IP:
+
    ```bash
    kubectl get svc -n ingress-nginx ingress-nginx-controller
    ```
+
    On EC2, the EXTERNAL-IP is usually the instance's public or private IP.
 
 3. Open **TCP 80** and **TCP 443** in the EC2 security group (inbound from `0.0.0.0/0` or your IP range). You can remove 31379/31466 if you no longer use NodePort.
@@ -398,7 +405,7 @@ When the ingress controller is **NodePort** (e.g. `kubectl get svc -n ingress-ng
 4. Use the EC2 public hostname over **HTTPS** (no port in URL; TLS is enabled in the Ingress):
    - **Frontend:** `https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com`
    - **API:** On the **same host** at path `/api` (see step 5). The hostname `api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com` **does not resolve** in DNS (AWS does not create it), so the frontend ingress routes `/api` to the backend on the same host. Use **the same URL as the frontend** for `NEXT_PUBLIC_API_URL` (no `api.` subdomain).
-   If you use the EC2 hostname, the ingress will serve the default/self-signed certificate — accept the browser warning once, or add a real certificate (e.g. cert-manager with Let's Encrypt) and a TLS secret referenced in `k8s/frontend.yaml` and `k8s/backend-ingress.yaml`.
+     If you use the EC2 hostname, the ingress will serve the default/self-signed certificate — accept the browser warning once, or add a real certificate (e.g. cert-manager with Let's Encrypt) and a TLS secret referenced in `k8s/frontend.yaml` and `k8s/backend-ingress.yaml`.
 
 5. Apply the ingress that routes `/api` to the backend on the same host, then build the frontend with the **same host** as the API URL (so the app calls `https://ec2-.../api/...`, no separate `api.` hostname):
    ```bash
@@ -424,37 +431,47 @@ When the ingress controller is **NodePort** (e.g. `kubectl get svc -n ingress-ng
 
 **Alternative: HTTPS without minikube tunnel (kubectl port-forward)**  
 If `sudo minikube tunnel` is not an option (e.g. profile not found under root), you can expose the ingress using port-forward. The ingress controller stays **NodePort**; on the EC2 host run (binding to 80/443 requires root):
-  ```bash
-  sudo env KUBECONFIG=/home/ec2-user/.kube/config kubectl port-forward --address 0.0.0.0 -n ingress-nginx svc/ingress-nginx-controller 80:80 443:443
-  ```
-  **Use `KUBECONFIG` with sudo** so root can reach the cluster (e.g. `sudo env KUBECONFIG=/home/ec2-user/.kube/config kubectl ...`). Use `--address 0.0.0.0` so the forward is reachable from the internet. Keep it running in the background (e.g. `nohup sudo env KUBECONFIG=/home/ec2-user/.kube/config kubectl port-forward --address 0.0.0.0 -n ingress-nginx svc/ingress-nginx-controller 80:80 443:443 >> /tmp/pf.log 2>&1 </dev/null &`). If the process exits immediately, check `cat /tmp/pf.log` for errors (often "Unable to connect to the server" when KUBECONFIG is not passed to sudo). Then open **https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com** (ensure security group allows TCP 80 and 443). Build frontend with **same host** for API so `/api` is used on the same origin: `NEXT_PUBLIC_API_URL=https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com` (no `api.` subdomain; see step 5 above and `k8s/frontend.yaml` which routes `/api` to the backend).
+
+```bash
+sudo env KUBECONFIG=/home/ec2-user/.kube/config kubectl port-forward --address 0.0.0.0 -n ingress-nginx svc/ingress-nginx-controller 80:80 443:443
+```
+
+**Use `KUBECONFIG` with sudo** so root can reach the cluster (e.g. `sudo env KUBECONFIG=/home/ec2-user/.kube/config kubectl ...`). Use `--address 0.0.0.0` so the forward is reachable from the internet. Keep it running in the background (e.g. `nohup sudo env KUBECONFIG=/home/ec2-user/.kube/config kubectl port-forward --address 0.0.0.0 -n ingress-nginx svc/ingress-nginx-controller 80:80 443:443 >> /tmp/pf.log 2>&1 </dev/null &`). If the process exits immediately, check `cat /tmp/pf.log` for errors (often "Unable to connect to the server" when KUBECONFIG is not passed to sudo). Then open **https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com** (ensure security group allows TCP 80 and 443). Build frontend with **same host** for API so `/api` is used on the same origin: `NEXT_PUBLIC_API_URL=https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com` (no `api.` subdomain; see step 5 above and `k8s/frontend.yaml` which routes `/api` to the backend).
 
 **Exact steps (when NodePort is on the host, e.g. driver=none):**
 
 1. **Confirm NodePorts** (from repo root on the server):
+
    ```bash
    kubectl get svc -n ingress-nginx ingress-nginx-controller
    ```
+
    Note the ports, e.g. **80:31379/TCP** and **443:31466/TCP** → HTTP is **31379**, HTTPS is **31466**.
 
 2. **Set Ingress hosts** in `k8s/frontend.yaml` and `k8s/backend-ingress.yaml` to your EC2 hostname and API hostname (same base, e.g. `ec2-18-118-6-21.us-east-2.compute.amazonaws.com` and `api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com`). Re-apply:
+
    ```bash
    kubectl apply -k k8s
    ```
 
 3. **Build frontend with API URL including the NodePort** (HTTPS on 31466, or HTTP on 31379). Example for HTTPS API:
+
    ```bash
    docker build --no-cache -t atoms-frontend:latest \
      --build-arg NEXT_PUBLIC_API_URL=https://api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com:31466 \
      ./frontend
    ```
+
    For HTTP API use port 31379:
+
    ```bash
    docker build --no-cache -t atoms-frontend:latest \
      --build-arg NEXT_PUBLIC_API_URL=http://api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com:31379 \
      ./frontend
    ```
+
    Load and restart:
+
    ```bash
    minikube image load atoms-frontend:latest
    kubectl rollout restart deployment/frontend -n atoms-demo
@@ -610,4 +627,59 @@ Then open http://localhost:3000.
 3. **Implementation** – consumes `implementation-stage`, calls OpenAI for full React app code, saves to MongoDB, produces to `feedback-stage`
 4. **Feedback** – consumes `feedback-stage`, writes “awaiting feedback” to MongoDB; user submits feedback via API, which produces back to `requirement-stage` to loop
 
-Without `OPENAI_API_KEY`, agents return fallback mock content. No authentication. Rate limiting is per-IP via Redis.
+Without `OPENAI_API_KEY`, agents return fallback mock content. App is gated by demo login (see top). Rate limiting is per-IP via Redis.
+
+---
+
+## 简要说明文档
+
+### 实现思路与关键取舍
+
+- **流水线设计**  
+  采用「需求 → 设计 → 实现 → 反馈」四阶段流水线：需求阶段产出 Markdown 文档，设计阶段产出线框图 JSON，实现阶段产出完整 React 单文件代码，反馈阶段写入「等待用户反馈」并可由用户提交反馈后重新从需求阶段跑起。
+
+- **双轨执行**  
+  - **首轮**：用户提交问题后，前端连接 SSE 流时后端在**进程内同步**执行 `RunPipelineSync`（requirement → design → implementation），不经过 Kafka，结果通过内存 Broker 实时推给当前连接的客户端，并写入 MongoDB。  
+  - **反馈轮**：用户提交反馈后，后端将消息写入 Kafka `requirement-stage`，由四个 Kafka 消费者（Requirement → Design → Implementation → Feedback）依次处理；同一进程内消费者会向同一 Broker 发送事件，前端对新 `run_id` 打开流即可收到流式输出。  
+  取舍：首轮优先保证「连上即看」的体验与实现简单；反馈轮用 Kafka 解耦，便于日后拆成多实例或独立服务。
+
+- **存储与缓存**  
+  Postgres 存用户问题（含 session_id）；MongoDB 存各阶段产出（含 run_id、stage、content、payload）；Redis 用于限流与列表/响应缓存。未做真实用户表与多租户隔离。
+
+- **前端**  
+  Next.js 14 + React 18，登录为硬编码演示账号（见上文 Login）。实现阶段用 **react-live** 做内联预览；对 LLM 常见手误（如标识符中多空格）做了前端修复（`fixAgentCodeTypo`），以提升预览可运行率。
+
+- **其它取舍**  
+  无注册/找回密码、无 OAuth；无持久化会话（仅内存 token）；错误重试以 agent 内有限重试 + Kafka 重试为主，无全局重试队列或死信处理。
+
+### 当前完成程度
+
+| 类别     | 已做 | 未做 / 部分做 |
+|----------|------|----------------|
+| 流水线   | 需求 / 设计 / 实现三阶段 LLM 调用；反馈提交后经 Kafka 重跑需求 | 同步流水线未在结束时写入「awaiting feedback」到 Mongo（仅 Kafka 路径有 stage 4） |
+| 流式输出 | SSE 按 stage 分块推送；Broker 缓冲并在订阅时回放 | 反馈轮依赖前端对新 run_id 打开流，否则仅能从列表拉已存结果 |
+| 前端 UI  | 问题列表、run 切换、需求/设计/实现三栏展示、线框图与代码展示、react-live 预览、反馈输入（文本+音频） | 无多 run 对比视图、无导出/分享 |
+| 音频     | 问题与反馈支持语音输入，Whisper 转写（需 `OPENAI_API_KEY`） | 无语音播报、无多语言 UI |
+| 认证与限流 | 演示登录门控、按 IP 的 Redis 限流 | 无注册、无数据库用户、无 RBAC |
+| 部署     | Docker Compose、K8s（Minikube/EC2 等）、双域/单域 Ingress、HTTPS 可选 | 无 CI/CD 示例、无监控/告警 |
+| 测试     | — | 无后端单元/集成测试、无 E2E |
+
+### 若继续投入时间的扩展建议与优先级
+
+- **P0（一致性 + 体验）**  
+  - 在 `RunPipelineSync` 结束后向 MongoDB 写入 stage 4「awaiting feedback」，使首轮与反馈轮在数据模型上一致，便于前端统一展示「可填写反馈」状态。  
+  - 统一错误提示与重试：流中断、Kafka 不可用时的用户可见提示与可选「重试」按钮。
+
+- **P1（功能）**  
+  - 简单用户系统：注册/登录/会话持久化（可仍用 Postgres），问题与 run 按用户隔离。  
+  - 多 run 对比：同一问题下多 run 的并排或切换视图，便于比较不同反馈后的结果。
+
+- **P2（质量与可配置）**  
+  - 后端单元测试（handlers、agents、stream broker）、集成测试（带 Mock LLM/Kafka）。  
+  - E2E（Playwright/Cypress）：登录 → 提问题 → 看流式结果 → 提交反馈 → 看新 run。  
+  - 可配置 LLM 模型/API（如通过 config 或 env 切换模型、max_tokens 等）。
+
+- **P3（运维与扩展）**  
+  - 多租户或团队维度隔离（tenant_id / team_id）。  
+  - 审计日志与基础监控（请求量、阶段耗时、失败率）。  
+  - 可选 Sandpack 等沙箱预览（当前以 react-live 为主，README 已说明 Sandpack 已移除）。
