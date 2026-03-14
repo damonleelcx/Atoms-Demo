@@ -2,6 +2,7 @@
 
 import React, { Component, useMemo, useState } from 'react';
 import { LiveProvider, LivePreview, LiveError } from 'react-live';
+import { fixAgentCodeTypo } from '@/components/fixAgentCodeTypo';
 
 /** Catches runtime errors in the live preview so we show the message instead of blank. Stores message string only to avoid mutating read-only error.message (SyntaxError etc.). */
 class PreviewErrorBoundary extends Component<
@@ -29,10 +30,7 @@ class PreviewErrorBoundary extends Component<
  * return code that defines a component and calls render(<Component />).
  */
 function transformForReactLive(raw: string): string {
-  let code = raw.trim();
-  // Fix common agent typo: "const handle SomeName" -> "const handleSomeName" (invalid identifier due to space)
-  code = code.replace(/\bconst\s+handle\s+([A-Z]\w*)\s*=/g, 'const handle$1 =');
-  code = code.replace(/\bfunction\s+handle\s+([A-Z]\w*)\s*\(/g, 'function handle$1(');
+  let code = fixAgentCodeTypo(raw.trim());
   // Remove import lines (single-line and multi-line)
   code = code.replace(/^import\s+.*?from\s+['"].*?['"]\s*;?\s*/gm, '');
   code = code.replace(/^export\s+default\s+/m, '');

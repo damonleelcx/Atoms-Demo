@@ -2,6 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { SandpackPreview, SandpackProvider } from '@codesandbox/sandpack-react';
+import { fixAgentCodeTypo } from '@/components/fixAgentCodeTypo';
 
 /** Catches Sandpack/Next digest and runtime errors so the rest of the app doesn't crash. */
 class SandpackErrorBoundary extends React.Component<
@@ -42,20 +43,11 @@ class SandpackErrorBoundary extends React.Component<
 }
 
 /**
- * Fix common agent typo: "const handle SomeName" -> "const handleSomeName" (invalid due to space).
- */
-function fixAgentTypo(code: string): string {
-  let out = code.replace(/\bconst\s+handle\s+([A-Z]\w*)\s*=/g, 'const handle$1 =');
-  out = out.replace(/\bfunction\s+handle\s+([A-Z]\w*)\s*\(/g, 'function handle$1(');
-  return out;
-}
-
-/**
  * Ensures the code has a default export for Sandpack's App.
  * Template "react-ts" expects /App.tsx to export default.
  */
 function ensureDefaultExport(code: string): string {
-  const trimmed = fixAgentTypo(code).trim();
+  const trimmed = fixAgentCodeTypo(code).trim();
   if (/export\s+default\s+/m.test(trimmed)) return trimmed;
   const fnMatch = trimmed.match(/\b(?:function|const)\s+(\w+)\s*[=(]/);
   const name = fnMatch ? fnMatch[1] : 'App';
