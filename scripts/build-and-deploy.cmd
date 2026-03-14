@@ -11,7 +11,7 @@ set "PART_TIME=%PART_TIME: =0%"
 set "PART_TIME=%PART_TIME::=-%"
 set "TAG=build-%PART_DATE%-%PART_TIME%-%RANDOM%"
 
-if not defined NEXT_PUBLIC_API_URL set "NEXT_PUBLIC_API_URL=https://api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com"
+if not defined NEXT_PUBLIC_API_URL set "NEXT_PUBLIC_API_URL=https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com"
 
 echo Tag: %TAG%
 echo Building backend...

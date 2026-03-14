@@ -1,5 +1,6 @@
 # Backend on its own domain (api.your-domain.com). Frontend is built with NEXT_PUBLIC_API_URL=http://api.your-domain.com.
 # Add api.your-domain.com to hosts (same IP as your-domain.com) when using minikube tunnel or port-forward.
+# When using EC2 public hostname, api.ec2-... does not resolve in DNS; the API is served on the same host at /api (see frontend.yaml). This ingress is only used when api.<host> is resolvable (e.g. custom DNS or hosts file).
 # proxy-buffering off so SSE /responses/stream is streamed in real time.
 ---
 apiVersion: networking.k8s.io/v1

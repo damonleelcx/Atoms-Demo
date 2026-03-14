@@ -66,6 +66,14 @@ spec:
     - host: ec2-18-118-6-21.us-east-2.compute.amazonaws.com
       http:
         paths:
+          # /api on same host (so api. subdomain DNS not needed); must be before /
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:
@@ -75,6 +83,13 @@ spec:
                   number: 3000
     - http:
         paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:

@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 # Unique tag per build: build-YYYYMMDD-HHMMSS-RANDOM
 TAG="build-$(date +%Y%m%d-%H%M%S)-$RANDOM"
-NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-https://api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com}"
+NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com}"
 
 echo "Tag: $TAG"
 echo "Building backend..."
