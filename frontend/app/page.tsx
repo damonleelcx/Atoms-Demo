@@ -219,6 +219,12 @@ function AtomsApp() {
         console.warn('[stream] create() did not return run_id:', res);
       }
       setInput('');
+      // So the "question change" effect does not clear currentRunId/runIds for this new question
+      prevQuestionIdRef.current = res.question_id;
+      setSelectedQuestion({ id: res.question_id, content: res.content, created_at: res.created_at });
+      setResponses([]);
+      setRunIds(res.run_id ? [res.run_id] : []);
+      setCurrentRunId(res.run_id ?? null);
       // Open stream immediately so backend has a subscriber before pipeline sends (broker buffers if we're late)
       if (res.run_id) {
         streamRunIdRef.current = res.run_id;
@@ -227,10 +233,6 @@ function AtomsApp() {
           if (streamRunIdRef.current !== res.run_id) openStream(res.question_id, res.run_id);
         }, 100);
       }
-      setSelectedQuestion({ id: res.question_id, content: res.content, created_at: res.created_at });
-      setResponses([]);
-      setRunIds(res.run_id ? [res.run_id] : []);
-      setCurrentRunId(res.run_id ?? null);
       await loadQuestions();
     } catch (e) {
       console.error(e);
@@ -245,13 +247,14 @@ function AtomsApp() {
     try {
       const res = await questionsApi.createAudio(blob, sessionId);
       setInput('');
-      await loadQuestions();
+      prevQuestionIdRef.current = res.question_id;
       setSelectedQuestion({ id: res.question_id, content: res.content, created_at: res.created_at });
       setResponses([]);
       const runId = (res as { question_id: string; run_id?: string; content: string; created_at: string }).run_id;
       if (runId) {
         setRunIds([runId]);
         setCurrentRunId(runId);
+        streamRunIdRef.current = runId;
         openStream(res.question_id, runId);
         setTimeout(() => {
           if (streamRunIdRef.current !== runId) openStream(res.question_id, runId);
@@ -259,6 +262,7 @@ function AtomsApp() {
       } else {
         loadResponses(res.question_id);
       }
+      await loadQuestions();
     } catch (e) {
       console.error(e);
       alert('Audio submit failed');
