@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # Build backend and frontend with a unique tag, load into Minikube, and deploy.
 # Run from repo root. Set NEXT_PUBLIC_API_URL in the script or pass as env (default below).
+# When run with sudo, minikube/kubectl use the invoking user's env (so the cluster is found).
 
 set -e
 cd "$(dirname "$0")/.."
+
+# When running as root (e.g. sudo), use the invoking user's HOME so minikube/kubectl find the cluster
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+  export HOME="$(eval echo ~$SUDO_USER)"
+  export MINIKUBE_HOME="$HOME/.minikube"
+  export KUBECONFIG="$HOME/.kube/config"
+fi
 
 # Unique tag per build: build-YYYYMMDD-HHMMSS-RANDOM
 TAG="build-$(date +%Y%m%d-%H%M%S)-$RANDOM"
