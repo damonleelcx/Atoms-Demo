@@ -26,7 +26,7 @@ echo "Loading images into Minikube (save to tar then load in cluster; works when
 TAR="atoms-images-$TAG.tar"
 docker save -o "$TAR" "atoms-backend:$TAG" "atoms-frontend:$TAG"
 minikube cp "$TAR" "/tmp/$TAR"
-minikube ssh "docker load -i /tmp/$TAR && rm -f /tmp/$TAR"
+minikube ssh "docker load -i /tmp/$TAR; rm -f /tmp/$TAR || true"
 rm -f "$TAR"
 echo "Updating deployments to use $TAG..."
 kubectl set image deployment/backend backend="atoms-backend:$TAG" -n atoms-demo
