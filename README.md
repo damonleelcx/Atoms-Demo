@@ -212,21 +212,9 @@ Frontend and backend use **separate domains**: frontend at `your-domain.com`, ba
    ```
 
 6. **Expose and access the app**
-   - Run **minikube tunnel** (leave the terminal open). Note the EXTERNAL-IP for the ingress controller:  
-     `kubectl get svc -n ingress-nginx ingress-nginx-controller`
-   - Add **both** domains to your hosts file (same IP), for example:
-     - `127.0.0.1 your-domain.com`
-     - `127.0.0.1 api.your-domain.com`
-       (Use the actual EXTERNAL-IP from tunnel if different.)
-   - Open **http://your-domain.com** for the frontend. The frontend will call **http://api.your-domain.com** for the API.
-
-   **Alternative (port-forward instead of tunnel):** add `127.0.0.1 your-domain.com` and `127.0.0.1 api.your-domain.com` to hosts, then:
-
-   ```bash
-   kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 80:80
-   ```
-
-   Open http://your-domain.com.
+   - Get the ingress EXTERNAL-IP: `kubectl get svc -n ingress-nginx ingress-nginx-controller`
+   - Add **both** domains to your hosts file (same IP): e.g. `<EXTERNAL-IP> your-domain.com` and `<EXTERNAL-IP> api.your-domain.com`
+   - Open **http://your-domain.com** for the frontend (frontend calls **http://api.your-domain.com** for the API).
 
 7. **Optional: Run on HTTPS locally** (e.g. for Sandpack live preview, which prefers HTTPS)
    - **Install [mkcert](https://github.com/FiloSottile/mkcert)** and create a local CA (once per machine):
@@ -270,9 +258,9 @@ Frontend and backend use **separate domains**: frontend at `your-domain.com`, ba
      kubectl rollout restart deployment/frontend -n atoms-demo
      ```
 
-   - **Expose and open:** Run `minikube tunnel`, add to hosts (same IP): `your-domain.com` and `api.your-domain.com`, then open **https://your-domain.com** (accept the browser warning if you didn’t install mkcert’s CA, or use `mkcert -install` so the cert is trusted).
+   - **Expose and open:** Use the same ingress IP as in step 6, add to hosts (same IP): `your-domain.com` and `api.your-domain.com`, then open **https://your-domain.com** (accept the browser warning if you didn’t install mkcert’s CA, or use `mkcert -install` so the cert is trusted).
 
-**Summary:** Frontend and backend each have their own Ingress (frontend: `your-domain.com`, backend: `api.your-domain.com`). Build frontend with `NEXT_PUBLIC_API_URL=http://api.your-domain.com` (or `https://...` for local HTTPS). Point both hosts to the same ingress IP (tunnel or port-forward).
+**Summary:** Frontend and backend each have their own Ingress (frontend: `your-domain.com`, backend: `api.your-domain.com`). Build frontend with `NEXT_PUBLIC_API_URL=http://api.your-domain.com` (or `https://...` for local HTTPS). Point both hosts to the same ingress IP.
 
 **Why does my request URL contain `/$NEXT_PUBLIC_API_URL/`?**  
 Next.js bakes `NEXT_PUBLIC_API_URL` into the frontend JavaScript **at build time**. If the frontend image was built without the build-arg (or with a wrong value), the bundle can end up requesting that literal path. **Fix:** Rebuild the frontend image with the correct build-arg and restart the frontend deployment (see build commands above). Ingress/middleware can rewrite the path as a workaround, but the only permanent fix is rebuilding the frontend.
@@ -348,147 +336,121 @@ Same two-domain setup as Option B: frontend at `your-domain.com`, backend at `ap
    ```
 
 6. **Expose the app**
-   - Ensure Ingress hosts in `k8s/frontend.yaml` and `k8s/backend-ingress.yaml` match your domains (`your-domain.com` and `api.your-domain.com`). For production, configure TLS (e.g. cert-manager) and use `https` in `NEXT_PUBLIC_API_URL`.
-   - Run **minikube tunnel** (or use your cloud LoadBalancer). Point DNS (or hosts) for both domains to the ingress EXTERNAL-IP. Users open **https://your-domain.com**; the frontend calls **https://api.your-domain.com**.
+   - Ensure Ingress hosts in `k8s/frontend.yaml` and `k8s/backend-ingress.yaml` match your domains. For **AWS EC2**, use **Minikube with driver=none** (see **"Minikube on AWS EC2 (driver=none)"** below)—no tunnel or port-forward. For other servers or local Minikube, point DNS (or hosts) to your ingress and use your cloud LoadBalancer or local ingress access as needed.
 
-#### Exposing on AWS EC2 with NodePort (no tunnel)
+#### Minikube on AWS EC2 (driver=none)
 
-When the ingress controller is **NodePort** (e.g. `kubectl get svc -n ingress-nginx ingress-nginx-controller` shows `TYPE NodePort` and `<none>` for EXTERNAL-IP), you do **not** need `minikube tunnel` **only if** the NodePort is bound on the EC2 host (see below).
+On AWS Linux EC2, run Minikube with **`--driver=none`** and **containerd** so the node is the host. NodePort then binds directly on the EC2 instance; no tunnel or port-forward is required.
 
-**Important (Minikube on EC2):** If minikube uses the **Docker** driver, the node runs inside a container. NodePorts (31379, 31466) then listen only inside that container, **not** on the EC2 host. From the host run `sudo ss -tlnp | grep 31466`; if you see no output, NodePort is not reachable from the internet. Use either:
-
-- **Option 1 (recommended):** Switch to LoadBalancer + `minikube tunnel` so traffic uses standard ports 80/443. See **"Option 1: LoadBalancer + tunnel (EC2)"** below.
-- **Option 2:** Recreate minikube with `minikube start --driver=none` so the node is the EC2 host; then NodePort will bind on the host and the steps in this section apply.
-
-**Option 1: LoadBalancer + minikube tunnel (EC2, Docker driver)**
-
-1. Change the ingress controller to LoadBalancer and run the tunnel (on the EC2 host). **On Linux you must run the tunnel with `sudo`** so it can bind to ports 80 and 443. If you use `sudo minikube tunnel`, root must see the same minikube profile as your user — use the same HOME and KUBECONFIG:
-   ```bash
-   kubectl patch svc ingress-nginx-controller -n ingress-nginx -p '{"spec":{"type":"LoadBalancer"}}'
-   sudo env HOME=/home/ec2-user MINIKUBE_HOME=/home/ec2-user/.minikube KUBECONFIG=/home/ec2-user/.kube/config minikube tunnel
-   ```
-   (Replace `/home/ec2-user` with your actual `$HOME` if different.) If EXTERNAL-IP stays a private range (e.g. `10.110.206.146`) and `curl -k https://127.0.0.1` fails with "Connection refused", the tunnel did not bind to the host — use the `sudo env ... minikube tunnel` form above.
-
-**Run tunnel in the background (AWS Linux / headless server):** You can't keep a terminal open; run the tunnel detached so it keeps running after you disconnect.
-
-- **Option A — nohup (one-off, may need passwordless sudo):**
-
-  ```bash
-  nohup sudo env HOME=/home/ec2-user MINIKUBE_HOME=/home/ec2-user/.minikube KUBECONFIG=/home/ec2-user/.kube/config minikube tunnel >> /tmp/minikube-tunnel.log 2>&1 </dev/null &
-  ```
-
-  Replace `/home/ec2-user` with your `$HOME`. Check with `tail -f /tmp/minikube-tunnel.log` and `kubectl get svc -n ingress-nginx ingress-nginx-controller`. If sudo prompts for a password, use Option B or C.
-
-- **Option B — screen (recommended):** Start a detached session, then attach when you need to check logs:
-
-  ```bash
-  screen -dmS tunnel sudo env HOME=/home/ec2-user MINIKUBE_HOME=/home/ec2-user/.minikube KUBECONFIG=/home/ec2-user/.kube/config minikube tunnel
-  ```
-
-  To view output later: `screen -r tunnel` (detach with Ctrl+A then D). To install screen: `sudo yum install -y screen` (Amazon Linux).
-
-- **Option C — kubectl port-forward (no tunnel):** If tunnel in background is unreliable, use port-forward instead (see "Alternative: HTTPS without minikube tunnel" below). Run in background with nohup:
-  ```bash
-  nohup sudo env KUBECONFIG=/home/ec2-user/.kube/config kubectl port-forward --address 0.0.0.0 -n ingress-nginx svc/ingress-nginx-controller 80:80 443:443 >> /tmp/pf.log 2>&1 </dev/null &
-  ```
-
-2. Get the EXTERNAL-IP:
-
-   ```bash
-   kubectl get svc -n ingress-nginx ingress-nginx-controller
-   ```
-
-   On EC2, the EXTERNAL-IP is usually the instance's public or private IP.
-
-3. Open **TCP 80** and **TCP 443** in the EC2 security group (inbound from `0.0.0.0/0` or your IP range). You can remove 31379/31466 if you no longer use NodePort.
-
-4. Use the EC2 public hostname over **HTTPS** (no port in URL; TLS is enabled in the Ingress):
-   - **Frontend:** `https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com`
-   - **API:** On the **same host** at path `/api` (see step 5). The hostname `api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com` **does not resolve** in DNS (AWS does not create it), so the frontend ingress routes `/api` to the backend on the same host. Use **the same URL as the frontend** for `NEXT_PUBLIC_API_URL` (no `api.` subdomain).
-     If you use the EC2 hostname, the ingress will serve the default/self-signed certificate — accept the browser warning once, or add a real certificate (e.g. cert-manager with Let's Encrypt) and a TLS secret referenced in `k8s/frontend.yaml` and `k8s/backend-ingress.yaml`.
-
-5. Apply the ingress that routes `/api` to the backend on the same host, then build the frontend with the **same host** as the API URL (so the app calls `https://ec2-.../api/...`, no separate `api.` hostname):
-   ```bash
-   kubectl apply -k k8s
-   docker build --no-cache -t atoms-frontend:latest \
-     --build-arg NEXT_PUBLIC_API_URL=https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com \
-     ./frontend
-   minikube image load atoms-frontend:latest
-   kubectl rollout restart deployment/frontend -n atoms-demo
-   ```
-
-**If you see ERR_CONNECTION_TIMED_OUT on HTTPS:**
-
-- **Security group:** Inbound rules for the EC2 instance must allow **TCP 443** (and **TCP 80**) from `0.0.0.0/0`. If 443 is missing or restricted, the browser will time out.
-- **minikube tunnel must be running:** The tunnel is what routes traffic from the host into the cluster. If it’s not running, nothing on the host will answer on 80/443. On Linux you must run it with **`sudo minikube tunnel`** so it can bind to ports 80/443; otherwise EXTERNAL-IP stays a private address and `curl -k https://127.0.0.1` will get "Connection refused".
-- **Check from the EC2 host:** SSH into the instance and run:
-  ```bash
-  kubectl get svc -n ingress-nginx ingress-nginx-controller   # EXTERNAL-IP should be the host IP, not 10.x
-  curl -k -v --connect-timeout 5 https://127.0.0.1
-  ```
-  If EXTERNAL-IP is a private range (e.g. 10.110.x.x) and `curl` gets "Connection refused", restart the tunnel with **`sudo minikube tunnel`**. If `curl` works locally but the browser times out, the issue is almost certainly the **security group** (443 not allowed from the internet).
-- **Try HTTP first:** Open `http://ec2-18-118-6-21.us-east-2.compute.amazonaws.com` (port 80). If HTTP works but HTTPS times out, add or fix the **TCP 443** rule in the security group.
-
-**Alternative: HTTPS without minikube tunnel (kubectl port-forward)**  
-If `sudo minikube tunnel` is not an option (e.g. profile not found under root), you can expose the ingress using port-forward. The ingress controller stays **NodePort**; on the EC2 host run (binding to 80/443 requires root):
+**1. Install dependencies** (Amazon Linux 2023; adjust for your distro)
 
 ```bash
-sudo env KUBECONFIG=/home/ec2-user/.kube/config kubectl port-forward --address 0.0.0.0 -n ingress-nginx svc/ingress-nginx-controller 80:80 443:443
+sudo yum install -y conntrack socat containerd
+sudo systemctl enable containerd && sudo systemctl start containerd
 ```
 
-**Use `KUBECONFIG` with sudo** so root can reach the cluster (e.g. `sudo env KUBECONFIG=/home/ec2-user/.kube/config kubectl ...`). Use `--address 0.0.0.0` so the forward is reachable from the internet. Keep it running in the background (e.g. `nohup sudo env KUBECONFIG=/home/ec2-user/.kube/config kubectl port-forward --address 0.0.0.0 -n ingress-nginx svc/ingress-nginx-controller 80:80 443:443 >> /tmp/pf.log 2>&1 </dev/null &`). If the process exits immediately, check `cat /tmp/pf.log` for errors (often "Unable to connect to the server" when KUBECONFIG is not passed to sudo). Then open **https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com** (ensure security group allows TCP 80 and 443). Build frontend with **same host** for API so `/api` is used on the same origin: `NEXT_PUBLIC_API_URL=https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com` (no `api.` subdomain; see step 5 above and `k8s/frontend.yaml` which routes `/api` to the backend).
+**crictl** (required by Minikube for driver=none):
 
-**Exact steps (when NodePort is on the host, e.g. driver=none):**
+```bash
+CRICTL_VERSION="v1.30.0"
+sudo curl -sL "https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}/crictl-${CRICTL_VERSION}-linux-amd64.tar.gz" | sudo tar -C /usr/local/bin -xz
+sudo chmod +x /usr/local/bin/crictl
+sudo crictl --version
+```
 
-1. **Confirm NodePorts** (from repo root on the server):
+**CNI plugins** (required for Kubernetes 1.24+ with driver=none):
 
-   ```bash
-   kubectl get svc -n ingress-nginx ingress-nginx-controller
-   ```
+```bash
+sudo mkdir -p /opt/cni/bin
+CNI_VERSION="v1.4.0"
+sudo curl -sL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-amd64-${CNI_VERSION}.tgz" | sudo tar -C /opt/cni/bin -xz
+ls /opt/cni/bin
+```
 
-   Note the ports, e.g. **80:31379/TCP** and **443:31466/TCP** → HTTP is **31379**, HTTPS is **31466**.
+**2. Start Minikube with driver=none and containerd**
 
-2. **Set Ingress hosts** in `k8s/frontend.yaml` and `k8s/backend-ingress.yaml` to your EC2 hostname and API hostname (same base, e.g. `ec2-18-118-6-21.us-east-2.compute.amazonaws.com` and `api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com`). Re-apply:
+```bash
+minikube stop
+minikube delete
+minikube start --driver=none --container-runtime=containerd
+```
 
-   ```bash
-   kubectl apply -k k8s
-   ```
+If Minikube reports no suitable external IP, set the API server to the instance private IP:
 
-3. **Build frontend with API URL including the NodePort** (HTTPS on 31466, or HTTP on 31379). Example for HTTPS API:
+```bash
+MINIKUBE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+minikube start --driver=none --container-runtime=containerd --apiserver-ips="$MINIKUBE_IP"
+```
 
-   ```bash
-   docker build --no-cache -t atoms-frontend:latest \
-     --build-arg NEXT_PUBLIC_API_URL=https://api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com:31466 \
-     ./frontend
-   ```
+Then fix kubectl config ownership:
 
-   For HTTP API use port 31379:
+```bash
+sudo chown -R $USER $HOME/.kube $HOME/.minikube
+```
 
-   ```bash
-   docker build --no-cache -t atoms-frontend:latest \
-     --build-arg NEXT_PUBLIC_API_URL=http://api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com:31379 \
-     ./frontend
-   ```
+**3. Enable Ingress and deploy the app**
 
-   Load and restart:
+```bash
+minikube addons enable ingress
+kubectl apply -k k8s
+```
 
-   ```bash
-   minikube image load atoms-frontend:latest
-   kubectl rollout restart deployment/frontend -n atoms-demo
-   ```
+If you see an admission webhook timeout, wait for ingress-nginx pods to be Ready, then retry. Optionally remove the webhook temporarily: `kubectl delete validatingwebhookconfiguration ingress-nginx-admission 2>/dev/null || true`, then `kubectl apply -k k8s` again.
 
-4. **Open AWS security group** for the EC2 instance:
-   - Inbound **TCP 31379** (HTTP) from `0.0.0.0/0` (or your IP range).
-   - Inbound **TCP 31466** (HTTPS) from `0.0.0.0/0` if using HTTPS.
+**4. Use NodePort for the ingress controller**
 
-5. **Access the app** (no DNS required if using the EC2 hostname):
-   - **Frontend (HTTP):** `http://ec2-18-118-6-21.us-east-2.compute.amazonaws.com:31379`
-   - **Frontend (HTTPS):** `https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com:31466`
-   - **API:** same host with `api.` prefix and same port, e.g. `https://api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com:31466`
+```bash
+kubectl get svc -n ingress-nginx ingress-nginx-controller
+# If TYPE is LoadBalancer, switch to NodePort:
+kubectl patch svc ingress-nginx-controller -n ingress-nginx -p '{"spec":{"type":"NodePort"}}'
+kubectl get svc -n ingress-nginx ingress-nginx-controller
+```
 
-   If you use a custom domain, point it to the EC2 public IP and include the port in the URL (e.g. `http://your-domain.com:31379`, `https://api.your-domain.com:31466`).
+Note the **actual NodePorts** (e.g. **80:30944/TCP**, **443:30212/TCP** → HTTP **30944**, HTTPS **30212**). Ports can vary per cluster; use the values from `kubectl get svc`.
 
-**Summary:** NodePort exposes the ingress on fixed ports; open those ports in the security group and use `<hostname>:31379` (HTTP) or `:31466` (HTTPS). Build the frontend with `NEXT_PUBLIC_API_URL` set to the API hostname **including the same port**.
+**5. Confirm NodePort is bound on the host**
+
+```bash
+# Replace with your actual HTTP and HTTPS NodePorts from step 4
+sudo ss -tlnp | grep -E '30944|30212'
+```
+
+**6. Open the EC2 security group**
+
+Inbound **TCP** for the HTTP NodePort and HTTPS NodePort (e.g. **30944** and **30212**) from `0.0.0.0/0` (or your IP range).
+
+**7. Build images and load into the cluster**
+
+If Docker reports permission denied on `~/.docker/buildx/`:
+
+```bash
+sudo chown -R $USER:$USER $HOME/.docker
+```
+
+Then build and import into containerd (driver=none uses host containerd):
+
+```bash
+docker build -t atoms-backend:latest ./backend
+docker build -t atoms-frontend:latest ./frontend
+docker save atoms-backend:latest  | sudo ctr -n k8s.io image import -
+docker save atoms-frontend:latest | sudo ctr -n k8s.io image import -
+```
+
+**8. Build frontend with API URL using the HTTPS NodePort**
+
+Replace the hostname and port with your EC2 public DNS and the **HTTPS** NodePort from step 4 (e.g. **30212**):
+
+```bash
+docker build --no-cache -t atoms-frontend:latest \
+  --build-arg NEXT_PUBLIC_API_URL=https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com:30212 \
+  ./frontend
+docker save atoms-frontend:latest | sudo ctr -n k8s.io image import -
+kubectl rollout restart deployment/frontend -n atoms-demo
+```
+
+**9. Access the app**
+
+Open **https://ec2-18-118-6-21.us-east-2.compute.amazonaws.com:30212** (use your EC2 hostname and HTTPS NodePort). Accept the self-signed certificate warning. No tunnel or port-forward process is required.
 
 ---
 
@@ -544,7 +506,7 @@ docker build --no-cache -t atoms-backend:latest ./backend
 
 - **K8s two-domain (Option B/C):** use `http://api.your-domain.com` (or `https://api.your-domain.com` with TLS) — frontend at `your-domain.com`, backend at `api.your-domain.com` (see Option B/C in Quick start).
 - **Docker Compose (Option A):** use **empty** — Next.js rewrites `/api` to the backend on the same host.
-- **Port-forward or local dev:** use `http://localhost:8080` — frontend at localhost:3000, backend at localhost:8080.
+- **Local dev (frontend/backend on host):** use `http://localhost:8080` — frontend at localhost:3000, backend at localhost:8080.
 
 - **Bash (Linux/macOS/Git Bash):** set the variable, then build:
 
@@ -595,11 +557,9 @@ Then open http://localhost:3000.
 
 **Ingress (nginx):** Two Ingresses: frontend at `your-domain.com` (`k8s/frontend.yaml`) and backend at `api.your-domain.com` (`k8s/backend-ingress.yaml`). Build frontend with `NEXT_PUBLIC_API_URL=http://api.your-domain.com`.
 
-- **Minikube / local:** Use either:
-  1. **minikube tunnel** – Run `minikube tunnel`, get EXTERNAL-IP: `kubectl get svc -n ingress-nginx ingress-nginx-controller`. Add to hosts: `<EXTERNAL-IP> your-domain.com` and `<EXTERNAL-IP> api.your-domain.com`. Open http://your-domain.com.
-  2. **Port-forward** – Add `127.0.0.1 your-domain.com` and `127.0.0.1 api.your-domain.com` to hosts, then run `kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 80:80`. Open http://your-domain.com.
+- **Minikube / local:** Get EXTERNAL-IP with `kubectl get svc -n ingress-nginx ingress-nginx-controller`, add to hosts: `<EXTERNAL-IP> your-domain.com` and `<EXTERNAL-IP> api.your-domain.com`, then open http://your-domain.com (see Option B step 6).
 
-- **Minikube on AWS EC2 (NodePort):** If the ingress controller is NodePort (no EXTERNAL-IP), no tunnel needed. Open security group for **31379** (HTTP) and **31466** (HTTPS). Build frontend with `NEXT_PUBLIC_API_URL` including the port (e.g. `https://api.ec2-18-118-6-21.us-east-2.compute.amazonaws.com:31466`). See **Option C → Exposing on AWS EC2 with NodePort** above for exact steps.
+- **Minikube on AWS EC2:** Use **driver=none** so NodePort binds on the host (see **Option C → Minikube on AWS EC2 (driver=none)**). Open the security group for the HTTP/HTTPS NodePorts from `kubectl get svc -n ingress-nginx ingress-nginx-controller`; build frontend with `NEXT_PUBLIC_API_URL` set to your EC2 hostname and HTTPS NodePort (e.g. `https://ec2-....compute.amazonaws.com:30212`).
 
 - **Production (managed K8s):** Set Ingress hosts in `k8s/frontend.yaml` and `k8s/backend-ingress.yaml` to your domains. Point DNS for both to the ingress LoadBalancer. Add TLS (e.g. cert-manager) and use `NEXT_PUBLIC_API_URL=https://api.your-domain.com` when building the frontend.
 
