@@ -20,7 +20,14 @@ if errorlevel 1 exit /b 1
 echo Building frontend (NEXT_PUBLIC_API_URL=%NEXT_PUBLIC_API_URL%)...
 docker build --no-cache -t "atoms-frontend:%TAG%" --build-arg "NEXT_PUBLIC_API_URL=%NEXT_PUBLIC_API_URL%" ./frontend
 if errorlevel 1 exit /b 1
-echo Loading images into Minikube (save to tar then load in cluster)...
+echo Loading images into Minikube...
+for /f "delims=" %%i in ('minikube config get driver 2^>nul') do set DRIVER=%%i
+if "%DRIVER%"=="none" (
+  echo Minikube driver=none is not supported by this script on Windows.
+  echo On the EC2 host, run scripts/build-and-deploy.sh instead, or load manually:
+  echo   docker save "atoms-backend:%TAG%" "atoms-frontend:%TAG%" ^| sudo ctr -n k8s.io image import -
+  exit /b 1
+)
 set "TAR=atoms-images-%TAG%.tar"
 docker save -o "%TAR%" "atoms-backend:%TAG%" "atoms-frontend:%TAG%"
 if errorlevel 1 exit /b 1

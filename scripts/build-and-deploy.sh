@@ -22,12 +22,20 @@ echo "Building backend..."
 docker build --no-cache -t "atoms-backend:$TAG" ./backend
 echo "Building frontend (NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL)..."
 docker build --no-cache -t "atoms-frontend:$TAG" --build-arg "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL" ./frontend
-echo "Loading images into Minikube (save to tar then load in cluster; works when Docker and Minikube use different daemons)..."
-TAR="atoms-images-$TAG.tar"
-docker save -o "$TAR" "atoms-backend:$TAG" "atoms-frontend:$TAG"
-minikube cp "$TAR" "/tmp/$TAR"
-minikube ssh "docker load -i /tmp/$TAR; rm -f /tmp/$TAR || true"
-rm -f "$TAR"
+echo "Loading images into Minikube..."
+DRIVER="$(minikube config get driver 2>/dev/null || true)"
+if [ "$DRIVER" = "none" ]; then
+  # driver=none: node is the host, use containerd directly (no minikube ssh)
+  echo "Using containerd import (driver=none)..."
+  docker save "atoms-backend:$TAG" "atoms-frontend:$TAG" | sudo ctr -n k8s.io image import -
+else
+  # docker/vm driver: save to tar, copy into node, load there
+  TAR="atoms-images-$TAG.tar"
+  docker save -o "$TAR" "atoms-backend:$TAG" "atoms-frontend:$TAG"
+  minikube cp "$TAR" "/tmp/$TAR"
+  minikube ssh "docker load -i /tmp/$TAR; rm -f /tmp/$TAR || true"
+  rm -f "$TAR"
+fi
 echo "Updating deployments to use $TAG..."
 kubectl set image deployment/backend backend="atoms-backend:$TAG" -n atoms-demo
 kubectl set image deployment/frontend frontend="atoms-frontend:$TAG" -n atoms-demo
