@@ -23,17 +23,21 @@ docker build --no-cache -t "atoms-backend:$TAG" ./backend
 echo "Building frontend (NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL)..."
 docker build --no-cache -t "atoms-frontend:$TAG" --build-arg "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL" ./frontend
 echo "Loading images into Minikube..."
-DRIVER="$(minikube config get driver 2>/dev/null || true)"
+DRIVER="$(minikube config get driver 2>/dev/null | tr -d '\r\n' || true)"
 if [ "$DRIVER" = "none" ]; then
   # driver=none: node is the host, use containerd directly (no minikube ssh)
   echo "Using containerd import (driver=none)..."
   docker save "atoms-backend:$TAG" "atoms-frontend:$TAG" | sudo ctr -n k8s.io image import -
 else
-  # docker/vm driver: save to tar, copy into node, load there
+  # Try minikube cp + ssh (fails when driver=none; then fall back to ctr)
   TAR="atoms-images-$TAG.tar"
   docker save -o "$TAR" "atoms-backend:$TAG" "atoms-frontend:$TAG"
-  minikube cp "$TAR" "/tmp/$TAR"
-  minikube ssh "docker load -i /tmp/$TAR; rm -f /tmp/$TAR || true"
+  if minikube cp "$TAR" "/tmp/$TAR" 2>/dev/null && minikube ssh "docker load -i /tmp/$TAR; rm -f /tmp/$TAR || true" 2>/dev/null; then
+    :
+  else
+    echo "Minikube cp/ssh not available (e.g. driver=none). Using containerd import..."
+    docker save "atoms-backend:$TAG" "atoms-frontend:$TAG" | sudo ctr -n k8s.io image import -
+  fi
   rm -f "$TAR"
 fi
 echo "Updating deployments to use $TAG..."
