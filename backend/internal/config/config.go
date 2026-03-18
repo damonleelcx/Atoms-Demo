@@ -15,11 +15,17 @@ type Config struct {
 	Redis    Redis    `yaml:"redis"`
 	Kafka    Kafka    `yaml:"kafka"`
 	OpenAI   OpenAI   `yaml:"openai"`
+	Auth     Auth     `yaml:"auth"`
 }
 
 type OpenAI struct {
 	APIKey string `yaml:"api_key"`
 	Model  string `yaml:"model"`
+}
+
+type Auth struct {
+	JWTSecret        string `yaml:"jwt_secret"`
+	JWTExpiresInDays int    `yaml:"jwt_expires_in_days"`
 }
 
 type Server struct {
@@ -90,11 +96,25 @@ func Load(path string) (*Config, error) {
 	if u := os.Getenv("OPENAI_MODEL"); u != "" {
 		c.OpenAI.Model = u
 	}
+	if u := os.Getenv("AUTH_JWT_SECRET"); u != "" {
+		c.Auth.JWTSecret = u
+	}
+	if n := os.Getenv("AUTH_JWT_EXPIRES_IN_DAYS"); n != "" {
+		var v int
+		if _, err := fmt.Sscanf(n, "%d", &v); err == nil {
+			c.Auth.JWTExpiresInDays = v
+		}
+	}
 	// When running in Docker (Postgres host is service name), use Kafka service name if brokers still localhost
 	if len(c.Kafka.Brokers) > 0 && (c.Kafka.Brokers[0] == "localhost:9092" || strings.HasPrefix(c.Kafka.Brokers[0], "127.0.0.1")) {
 		if strings.Contains(c.Postgres.URL, "@postgres:") {
 			c.Kafka.Brokers = []string{"kafka:9092"}
 		}
+	}
+
+	// Defaults (safe for demo; override in prod)
+	if c.Auth.JWTExpiresInDays <= 0 {
+		c.Auth.JWTExpiresInDays = 14
 	}
 	return &c, nil
 }

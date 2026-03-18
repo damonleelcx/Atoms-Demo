@@ -6,12 +6,14 @@ toolchain go1.24.0
 
 require (
 	github.com/gin-gonic/gin v1.10.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.5.1
 	github.com/redis/go-redis/v9 v9.4.0
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/segmentio/kafka-go v0.4.47
 	go.mongodb.org/mongo-driver v1.13.1
+	golang.org/x/crypto v0.23.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -51,7 +53,6 @@ require (
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.23.0 // indirect
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/sync v0.6.0 // indirect
 	golang.org/x/sys v0.26.0 // indirect

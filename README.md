@@ -14,7 +14,7 @@ Multi-agent app builder: describe an app you want, and agents (requirement → d
 
 API keys: set `OPENAI_API_KEY` for real LLM output; in K8s use a Secret from `k8s/.env` (see Kubernetes section).
 
-**Login:** The app is gated by a username/password screen. Demo credentials (hardcoded, no database): **username `user123`, password `password123`.**
+**Login:** The app is gated by a username/password screen. Use **Sign up** to create an account, then sign in (credentials are stored in Postgres; auth uses JWT).
 
 ---
 

@@ -7,7 +7,7 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { MarkdownView } from '@/components/MarkdownView';
 import { ReactDesignView } from '@/components/ReactDesignView';
 import { WireframeView } from '@/components/WireframeView';
-import { isAuthenticated } from '@/lib/auth';
+import { clearToken, isAuthenticated } from '@/lib/auth';
 import { questionsApi, type AgentResponse, type Question } from '@/lib/api';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -24,10 +24,17 @@ export default function Home() {
     return <LoginScreen onSuccess={() => setAuthenticated(true)} />;
   }
 
-  return <AtomsApp />;
+  return (
+    <AtomsApp
+      onLogout={() => {
+        clearToken();
+        setAuthenticated(false);
+      }}
+    />
+  );
 }
 
-function AtomsApp() {
+function AtomsApp({ onLogout }: { onLogout: () => void }) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
   const [responses, setResponses] = useState<AgentResponse[]>([]);
@@ -374,9 +381,28 @@ function AtomsApp() {
   return (
     <div className="app-root" style={{ minHeight: '100vh' }}>
       <header className="app-header">
-        <h1 data-app-header>
-          Atoms Demo – Multi-Agent App Builder {'\u{1F916}'}
-        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%' }}>
+          <h1 data-app-header style={{ margin: 0 }}>
+            Atoms Demo – Multi-Agent App Builder {'\u{1F916}'}
+          </h1>
+          <button
+            type="button"
+            onClick={onLogout}
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              background: 'var(--bg)',
+              color: 'var(--text)',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+              flexShrink: 0,
+            }}
+          >
+            Log out
+          </button>
+        </div>
       </header>
 
       <div className="app-body">

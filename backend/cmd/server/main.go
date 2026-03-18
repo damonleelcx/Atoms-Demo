@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"atoms-demo/backend/internal/agents"
+	"atoms-demo/backend/internal/auth"
 	"atoms-demo/backend/internal/config"
 	"atoms-demo/backend/internal/handlers"
 	"atoms-demo/backend/internal/kafka"
@@ -85,6 +86,7 @@ func main() {
 	streamBroker := stream.NewBroker()
 
 	llmClient := llm.NewClient(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
+	authSvc := auth.NewService(cfg.Auth.JWTSecret, time.Duration(cfg.Auth.JWTExpiresInDays)*24*time.Hour)
 
 	// Start agent consumers in background
 	go func() {
@@ -123,6 +125,7 @@ func main() {
 		Transcriber:    llmClient,
 		Broker:         streamBroker,
 		LLMClient:      llmClient,
+		Auth:           authSvc,
 		QuestionsCache: questionsCache,
 		ResponseCache:  responseCache,
 	}
@@ -132,7 +135,7 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware())
 	r.Use(stripNextPublicApiUrlPrefix())
-	r.Use(middleware.RequireAuth()) // old frontend bundle may request /$NEXT_PUBLIC_API_URL/api/...
+	r.Use(middleware.RequireAuth(authSvc)) // old frontend bundle may request /$NEXT_PUBLIC_API_URL/api/...
 	// Reject empty POST /api/questions before rate limit so spam does not burn the bucket
 	r.Use(middleware.RejectEmptyQuestionPOST())
 	limit := cfg.Redis.RateLimit
@@ -149,6 +152,7 @@ func main() {
 	}
 
 	r.POST("/api/auth/login", h.Login)
+	r.POST("/api/auth/signup", h.Signup)
 	r.POST("/api/questions", h.SubmitQuestion)
 	r.GET("/api/questions", h.ListQuestions)
 	r.GET("/api/questions/:id", h.GetQuestion)

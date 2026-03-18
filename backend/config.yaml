@@ -17,3 +17,7 @@ kafka:
   topic_implementation: "implementation-stage"
   topic_feedback: "feedback-stage"
   consumer_group: "atoms-agents"
+auth:
+  # Demo default; override via AUTH_JWT_SECRET in real deployments.
+  jwt_secret: "change-me-in-prod"
+  jwt_expires_in_days: 14

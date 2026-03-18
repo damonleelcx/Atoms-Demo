@@ -1,9 +1,10 @@
 'use client';
 
-import { login } from '@/lib/auth';
+import { login, signup } from '@/lib/auth';
 import React, { useState } from 'react';
 
 export function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -14,7 +15,8 @@ export function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
     setError('');
     setLoading(true);
     try {
-      const result = await login(username.trim(), password);
+      const uname = username.trim();
+      const result = mode === 'signup' ? await signup(uname, password) : await login(uname, password);
       if (result.ok) {
         onSuccess();
       } else {
@@ -59,8 +61,50 @@ export function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
           Atoms Demo
         </h1>
         <p style={{ margin: '0 0 24px', fontSize: 14, color: 'var(--muted)' }}>
-          Sign in to continue
+          {mode === 'signup' ? 'Create an account to continue' : 'Sign in to continue'}
         </p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('login');
+              setError('');
+            }}
+            style={{
+              flex: 1,
+              padding: '10px 12px',
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              background: mode === 'login' ? 'var(--accent-dim)' : 'transparent',
+              color: 'var(--text)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 13,
+            }}
+          >
+            Sign in
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('signup');
+              setError('');
+            }}
+            style={{
+              flex: 1,
+              padding: '10px 12px',
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              background: mode === 'signup' ? 'var(--accent-dim)' : 'transparent',
+              color: 'var(--text)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 13,
+            }}
+          >
+            Sign up
+          </button>
+        </div>
         <form onSubmit={handleSubmit}>
           <label
             style={{
@@ -146,8 +190,13 @@ export function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
               cursor: loading ? 'not-allowed' : 'pointer',
             }}
           >
-            {loading ? 'Signing in…' : 'Sign in'}
+            {loading ? (mode === 'signup' ? 'Creating…' : 'Signing in…') : mode === 'signup' ? 'Create account' : 'Sign in'}
           </button>
+          {mode === 'signup' && (
+            <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
+              Password must be at least 8 characters.
+            </p>
+          )}
         </form>
       </div>
     </div>

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"atoms-demo/backend/internal/agents"
+	"atoms-demo/backend/internal/auth"
 	"atoms-demo/backend/internal/kafka"
 	"atoms-demo/backend/internal/llm"
 	"atoms-demo/backend/internal/middleware"
@@ -32,6 +33,7 @@ type Handlers struct {
 	Transcriber     Transcriber
 	Broker          *stream.Broker
 	LLMClient       *llm.Client
+	Auth            *auth.Service
 	QuestionsCache  *middleware.QuestionsListCache
 	ResponseCache   *middleware.ResponseCache
 	pipelineStarted sync.Map // runID -> *sync.Mutex, to start pipeline only once per run_id
